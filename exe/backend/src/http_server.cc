@@ -256,28 +256,23 @@ struct http_server::impl {
     switch (profile) {
       case search_profile::kFoot:
         send_graph_response<foot<false>>(req, cb, gj);
-      break;
+        break;
       case search_profile::kWheelchair:
         send_graph_response<foot<true>>(req, cb, gj);
-      break;
-      case search_profile::kBike:
-        send_graph_response<bike>(req, cb, gj);
-      break;
-      case search_profile::kCar:
-        send_graph_response<car>(req, cb, gj);
-      break;
+        break;
+      case search_profile::kBike: send_graph_response<bike>(req, cb, gj); break;
+      case search_profile::kCar: send_graph_response<car>(req, cb, gj); break;
       case search_profile::kCarParking:
         send_graph_response<car_parking>(req, cb, gj);
-      break;
+        break;
       default: throw utl::fail("not implemented");
     }
   }
 
-  template<typename Profile>
-  void send_graph_response(
-                  web_server::http_req_t const& req,
-                  web_server::http_res_cb_t const& cb,
-                  geojson_writer& gj) {
+  template <typename Profile>
+  void send_graph_response(web_server::http_req_t const& req,
+                           web_server::http_res_cb_t const& cb,
+                           geojson_writer& gj) {
     cb(json_response(req, gj.finish(get_dijkstra<Profile>())));
   }
 
