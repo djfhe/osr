@@ -121,22 +121,19 @@ struct http_server::impl {
 
     switch (profile) {
       case search_profile::kFoot:
-        handle_routing(req, cb, get_dijkstra<foot<false>>(), from, to, max,
-                       direction);
+        handle_routing<foot<false>>(req, cb, from, to, max, direction);
         break;
       case search_profile::kWheelchair:
-        handle_routing(req, cb, get_dijkstra<foot<true>>(), from, to, max,
-                       direction);
+        handle_routing<foot<true>>(req, cb, from, to, max, direction);
         break;
       case search_profile::kBike:
-        handle_routing(req, cb, get_dijkstra<bike>(), from, to, max, direction);
+        handle_routing<bike>(req, cb, from, to, max, direction);
         break;
       case search_profile::kCar:
-        handle_routing(req, cb, get_dijkstra<car>(), from, to, max, direction);
+        handle_routing<car>(req, cb, from, to, max, direction);
         break;
       case search_profile::kCarParking:
-        handle_routing(req, cb, get_dijkstra<car_parking>(), from, to, max,
-                       direction);
+        handle_routing<car_parking>(req, cb, from, to, max, direction);
         break;
       default: throw utl::fail("not implemented");
     }
@@ -145,11 +142,10 @@ struct http_server::impl {
   template <typename Profile>
   void handle_routing(web_server::http_req_t const& req,
                       web_server::http_res_cb_t const& cb,
-                      dijkstra<Profile> const& d,
-                      location from,
-                      location to,
-                      cost_t max,
-                      direction dir) {
+                      location const from,
+                      location const to,
+                      cost_t const max,
+                      direction const dir) {
     auto p = route(w_, l_, get_dijkstra<Profile>(), from, to, max, dir);
 
     if (!p.has_value()) {
