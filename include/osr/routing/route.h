@@ -19,7 +19,8 @@ enum class search_profile : std::uint8_t {
   kBike,
   kCar,
   kCarParking,
-  kCarParkingWheelchair
+  kCarParkingWheelchair,
+  kTest,
 };
 
 search_profile to_profile(std::string_view);
@@ -31,7 +32,7 @@ struct path {
     std::vector<geo::latlng> polyline_;
     level_t from_level_;
     level_t to_level_;
-    node_idx_t from_, to_;
+    node_idx_t from_{}, to_{};
     way_idx_t way_;
     cost_t cost_{kInfeasible};
     distance_t dist_{0};

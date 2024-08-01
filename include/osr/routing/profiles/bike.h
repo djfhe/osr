@@ -123,12 +123,12 @@ struct bike {
         }
 
         auto const target_way_prop = w.way_properties_[way];
-        if (way_cost(target_way_prop, way_dir, 0U) == kInfeasible) {
+        if (way_cost(target_way_prop, way_dir, SearchDir, 0U) == kInfeasible) {
           return;
         }
 
         auto const dist = w.way_node_dist_[way][std::min(from, to)];
-        auto const cost = way_cost(target_way_prop, way_dir, dist) +
+        auto const cost = way_cost(target_way_prop, way_dir, SearchDir, dist) +
                           node_cost(target_node_prop);
         fn(node{target_node}, static_cast<std::uint32_t>(cost), dist, way, from,
            to);
@@ -144,6 +144,7 @@ struct bike {
   }
 
   static constexpr cost_t way_cost(way_properties const e,
+                                   direction,
                                    direction,
                                    std::uint16_t const dist) {
     if (e.is_bike_accessible()) {

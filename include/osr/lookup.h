@@ -147,13 +147,13 @@ struct lookup {
     auto const way_prop = ways_.r_->way_properties_[wc.way_];
     auto const edge_dir = reverse ? opposite(dir) : dir;
     auto const way_cost =
-        Profile::way_cost(way_prop, flip(search_dir, edge_dir), 0U);
+        Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir, 0U);
     if (way_cost == kInfeasible) {
       return node_candidate{};
     }
 
     auto const offroad_cost =
-        Profile::way_cost(way_prop, flip(search_dir, edge_dir),
+        Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir,
                           static_cast<distance_t>(wc.dist_to_way_));
     auto c = node_candidate{.lvl_ = lvl,
                             .way_dir_ = dir,
@@ -171,7 +171,7 @@ struct lookup {
                    auto const segment_dist = geo::distance(c.path_.back(), pos);
                    c.dist_to_node_ += segment_dist;
                    c.cost_ +=
-                       Profile::way_cost(way_prop, flip(search_dir, edge_dir),
+                       Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir,
                                          static_cast<distance_t>(segment_dist));
                    c.path_.push_back(pos);
 

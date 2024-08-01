@@ -9,7 +9,6 @@
 
 #include "fmt/core.h"
 
-#include "utl/enumerate.h"
 #include "utl/pipes.h"
 #include "utl/to_vec.h"
 
@@ -22,6 +21,7 @@
 #include "osr/routing/profiles/bike.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/car_parking.h"
+#include "osr/routing/profiles/combi_profile.h"
 #include "osr/routing/profiles/foot.h"
 #include "osr/routing/route.h"
 
@@ -196,6 +196,8 @@ struct http_server::impl {
       case search_profile::kCarParkingWheelchair:
         send_graph_response<car_parking<true>>(req, cb, gj);
         break;
+      case search_profile::kTest:
+        send_graph_response<test_profile>(req, cb, gj);
       default: throw utl::fail("not implemented");
     }
   }

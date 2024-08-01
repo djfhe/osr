@@ -10,6 +10,7 @@
 #include "osr/routing/profiles/bike.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/car_parking.h"
+#include "osr/routing/profiles/combi_profile.h"
 #include "osr/routing/profiles/foot.h"
 
 namespace osr {
@@ -23,6 +24,7 @@ search_profile to_profile(std::string_view s) {
     case cista::hash("car_parking"): return search_profile::kCarParking;
     case cista::hash("car_parking_wheelchair"):
       return search_profile::kCarParkingWheelchair;
+    case cista::hash("test"): return search_profile::kTest;
   }
   throw utl::fail("{} is not a valid profile", s);
 }
@@ -35,6 +37,7 @@ std::string_view to_str(search_profile const p) {
     case search_profile::kBike: return "bike";
     case search_profile::kCarParking: return "car_parking";
     case search_profile::kCarParkingWheelchair: return "car_parking_wheelchair";
+    case search_profile::kTest: return "test";
   }
   throw utl::fail("{} is not a valid profile", static_cast<std::uint8_t>(p));
 }
@@ -427,6 +430,9 @@ std::vector<std::optional<path>> route(
     case search_profile::kCarParkingWheelchair:
       return route(w, l, get_dijkstra<car_parking<true>>(), from, to, max, dir,
                    max_match_distance, blocked, do_reconstruct);
+    case search_profile::kTest:
+      return route(w, l, get_dijkstra<test_profile>(), from,
+                   to, max, dir, max_match_distance, blocked, do_reconstruct);
   }
   throw utl::fail("not implemented");
 }
@@ -459,6 +465,9 @@ std::optional<path> route(ways const& w,
     case search_profile::kCarParkingWheelchair:
       return route(w, l, get_dijkstra<car_parking<true>>(), from, to, max, dir,
                    max_match_distance, blocked);
+    case search_profile::kTest:
+      return route(w, l, get_dijkstra<test_profile>(), from,
+                   to, max, dir, max_match_distance, blocked);
   }
   throw utl::fail("not implemented");
 }
