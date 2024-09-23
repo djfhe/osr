@@ -432,8 +432,8 @@ std::vector<std::optional<path>> route(
     case search_profile::kCarParkingWheelchair:
       return route(w, l, get_dijkstra<car_parking<true>>(), from, to, max, dir,
                    max_match_distance, blocked, do_reconstruct);
-    case search_profile::kTest:
-      return route(w, l, get_dijkstra<test_profile>(), from,
+    case search_profile::kFootCarFoot:
+      return route(w, l, get_dijkstra<foot_car_foot_profile>(), from,
                    to, max, dir, max_match_distance, blocked, do_reconstruct);
   }
   throw utl::fail("not implemented");
@@ -467,8 +467,8 @@ std::optional<path> route(ways const& w,
     case search_profile::kCarParkingWheelchair:
       return route(w, l, get_dijkstra<car_parking<true>>(), from, to, max, dir,
                    max_match_distance, blocked);
-    case search_profile::kTest:
-      return route(w, l, get_dijkstra<test_profile>(), from,
+    case search_profile::kFootCarFoot:
+      return route(w, l, get_dijkstra<foot_car_foot_profile>(), from,
                    to, max, dir, max_match_distance, blocked);
   }
   throw utl::fail("not implemented");
