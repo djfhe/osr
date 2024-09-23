@@ -55,11 +55,13 @@ struct bike {
   };
 
   struct entry {
-    constexpr std::optional<node> pred(node) const noexcept {
+    constexpr std::optional<node> pred(node, direction) const noexcept {
       return pred_ == node_idx_t::invalid() ? std::nullopt
                                             : std::optional{node{pred_}};
     }
     constexpr cost_t cost(node) const noexcept { return cost_; }
+
+    template<direction>
     constexpr bool update(label const&,
                           node,
                           cost_t const c,
@@ -69,6 +71,7 @@ struct bike {
         pred_ = pred.n_;
         return true;
       }
+
       return false;
     }
 
@@ -86,6 +89,11 @@ struct bike {
                                  direction,
                                  Fn&& f) {
     f(node{n});
+  }
+
+  template<direction SearchDir>
+  static constexpr node get_starting_node_pred() noexcept {
+    return node::invalid();
   }
 
   template <typename Fn>

@@ -24,7 +24,7 @@ search_profile to_profile(std::string_view s) {
     case cista::hash("car_parking"): return search_profile::kCarParking;
     case cista::hash("car_parking_wheelchair"):
       return search_profile::kCarParkingWheelchair;
-    case cista::hash("test"): return search_profile::kTest;
+    case cista::hash("foot_car_foot"): return search_profile::kFootCarFoot;
   }
   throw utl::fail("{} is not a valid profile", s);
 }
@@ -37,7 +37,7 @@ std::string_view to_str(search_profile const p) {
     case search_profile::kBike: return "bike";
     case search_profile::kCarParking: return "car_parking";
     case search_profile::kCarParkingWheelchair: return "car_parking_wheelchair";
-    case search_profile::kTest: return "test";
+    case search_profile::kFootCarFoot: return "foot_car_foot";
   }
   throw utl::fail("{} is not a valid profile", static_cast<std::uint8_t>(p));
 }
@@ -162,7 +162,7 @@ path reconstruct(ways const& w,
   auto dist = 0.0;
   while (true) {
     auto const& e = d.cost_.at(n.get_key());
-    auto const pred = e.pred(n);
+    auto const pred = e.pred(n, dir);
     if (pred.has_value()) {
       auto const expected_cost =
           static_cast<cost_t>(e.cost(n) - d.get_cost(*pred));
@@ -302,7 +302,7 @@ std::optional<path> route(ways const& w,
       if (nc->valid() && nc->cost_ < max) {
         Profile::resolve_start_node(
             *w.r_, start.way_, nc->node_, from.lvl_, dir,
-            [&](auto const node) { d.add_start({node, nc->cost_}); });
+            [&](auto const node) { d.add_start({node, nc->cost_}, dir); });
       }
     }
 
@@ -356,7 +356,7 @@ std::vector<std::optional<path>> route(
             *w.r_, start.way_, nc->node_, from.lvl_, dir, [&](auto const node) {
               auto label = typename Profile::label{node, nc->cost_};
               label.track(label, *w.r_, start.way_, node.get_node());
-              d.add_start(label);
+              d.add_start(label, dir);
             });
       }
     }

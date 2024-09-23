@@ -65,7 +65,7 @@ struct car {
 
     entry() { utl::fill(cost_, kInfeasible); }
 
-    constexpr std::optional<node> pred(node const n) const noexcept {
+    constexpr std::optional<node> pred(node const n, direction) const noexcept {
       auto const idx = get_index(n);
       return pred_[idx] == node_idx_t::invalid()
                  ? std::nullopt
@@ -77,6 +77,7 @@ struct car {
       return cost_[get_index(n)];
     }
 
+    template<direction>
     constexpr bool update(label const&,
                           node const n,
                           cost_t const c,
@@ -140,6 +141,11 @@ struct car {
         f(node{n, i, direction::kBackward});
       }
     }
+  }
+
+  template<direction SearchDir>
+  static constexpr node get_starting_node_pred() noexcept {
+    return node::invalid();
   }
 
   template <typename Fn>

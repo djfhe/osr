@@ -3,6 +3,8 @@
 #include "osr/routing/tracking.h"
 #include "osr/ways.h"
 
+#include "boost/integer_traits.hpp"
+
 namespace osr {
 
 template <bool IsWheelchair, typename Tracking = noop_tracking>
@@ -55,12 +57,14 @@ struct foot {
   };
 
   struct entry {
-    constexpr std::optional<node> pred(node) const noexcept {
+    constexpr std::optional<node> pred(node, direction) const noexcept {
       return pred_ == node_idx_t::invalid()
                  ? std::nullopt
                  : std::optional{node{pred_, pred_lvl_}};
     }
     constexpr cost_t cost(node) const noexcept { return cost_; }
+
+    template<direction>
     constexpr bool update(label const& l,
                           node,
                           cost_t const c,
@@ -108,26 +112,33 @@ struct foot {
     }
   }
 
+  template<direction SearchDir>
+  static constexpr node get_starting_node_pred() noexcept {
+    return node::invalid();
+  }
+
   template <typename Fn>
   static void resolve_all(ways::routing const& w,
                           node_idx_t const n,
                           level_t const lvl,
                           Fn&& f) {
     auto const ways = w.node_ways_[n];
-    auto levels = hash_set<level_t>{};
+    auto levelsBitSet = std::bitset<255>();
     for (auto i = way_pos_t{0U}; i != ways.size(); ++i) {
       // TODO what's with stairs? need to resolve to from_level or to_level?
       auto const p = w.way_properties_[w.node_ways_[n][i]];
       if (lvl == level_t::invalid()) {
-        if (levels.emplace(p.from_level()).second) {
+        if (!levelsBitSet.test(p.from_level().v_)) {
+          levelsBitSet.set(p.to_level().v_);
           f(node{n, p.from_level()});
         }
-        if (levels.emplace(p.to_level()).second) {
+        if (!levelsBitSet.test(p.to_level().v_)) {
+          levelsBitSet.set(p.from_level().v_);
           f(node{n, p.to_level()});
         }
       } else if ((p.from_level() == lvl || p.to_level() == lvl ||
-                  can_use_elevator(w, n, lvl)) &&
-                 levels.emplace(lvl).second) {
+                  can_use_elevator(w, n, lvl)) && !levelsBitSet.test(lvl.v_)) {
+        levelsBitSet.set(lvl.v_);
         f(node{n, lvl});
       }
     }

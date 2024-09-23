@@ -5,83 +5,54 @@
 #include "osr/types.h"
 #include "osr/ways.h"
 
-#include "osr/routing/profiles/foot_car.h"
+#include "osr/routing/profiles/transitions.h"
+#include "osr/routing/profiles/car.h"
 
-template<typename, typename = void>
-struct has_source_node : std::false_type { };
+template <class T, T ... Is, class F>
+auto compile_switch(T i, std::integer_sequence<T, Is...>, F f) {
+  using return_type = std::common_type_t<decltype(f(std::integral_constant<T, Is>{}))...>;
 
-template<typename T>
-struct has_source_node<T, std::void_t<typename T::source_node>> : std::true_type { };
+  if constexpr (std::is_void_v<return_type>) {
+    std::initializer_list<int> ({(i == Is ? (f(std::integral_constant<T, Is>{}), 0) : 0)...});
+  } else {
+    return_type ret;
+    std::initializer_list<int> ({(i == Is ? (ret = f(std::integral_constant<T, Is>{})), 0 : 0)...});
+    return ret;
+  }
+}
 
-template <typename T, bool = has_source_node<T>::value>
-struct get_source_node {
-  using type = typename T::source_node;
-};
-
-template<typename T>
-struct get_source_node<T, false> {
-  using type = typename T::node;
-};
-
-template<typename, typename = void>
-struct has_destination_node : std::false_type { };
-
-template<typename T>
-struct has_destination_node<T, std::void_t<typename T::destination_node>> : std::true_type { };
-
-template<typename T, bool = has_destination_node<T>::value>
-struct get_destination_node {
-  using type = typename T::destination_node;
-};
+template <typename Variant, typename Visitor>
+constexpr auto visit_with_index(Variant&& variant, Visitor&& visitor) {
+  return compile_switch(variant.index(), std::make_index_sequence<std::variant_size_v<std::decay_t<Variant>>>{}, [&](auto i) {
+    return visitor(std::get<i>(variant), i);
+  });
+}
 
 template<typename T>
-struct get_destination_node<T, false> {
-  using type = typename T::node;
+struct profile_types;
+
+template<typename... Ts>
+struct profile_types<std::tuple<Ts...>> {
+  using profile_node = std::variant<typename Ts::node...>;
+  using profile_key = std::variant<typename Ts::key...>;
+  using profile_hash_tuple = std::tuple<typename Ts::hash...>;
+  using profile_entry_tuple = std::tuple<typename Ts::entry...>;
 };
 
 namespace osr {
 
-// Metafunction to map entry types to their corresponding profile types
-template <typename... profiles>
+template <typename profile_tuple, typename transition_tuple>
 struct combi_profile {
+  static_assert(std::tuple_size_v<profile_tuple> > 0, "At least one profile must be provided.");
+  static_assert(std::tuple_size_v<profile_tuple> - 1 == std::tuple_size_v<transition_tuple>, "You must provide one transition less than the number of profiles.");
 
-  using profile_variant = std::variant<profiles...>;
+  using first_profile = std::tuple_element_t<0, profile_tuple>;
+  using last_profile = std::tuple_element_t<std::tuple_size_v<profile_tuple> - 1, profile_tuple>;
+  using last_profile_index = std::integral_constant<size_t, std::tuple_size_v<profile_tuple> - 1>;
 
-  static std::array<profile_variant, sizeof...(profiles)> constexpr profiles_ = {profiles{}...};
+  using profile_node = typename profile_types<profile_tuple>::profile_node;
 
-  static_assert(sizeof...(profiles) > 0, "At least one profile must be provided.");
-
-  using first_profile = std::tuple_element_t<0, std::tuple<profiles...>>;
-  using last_profile = std::tuple_element_t<sizeof...(profiles) - 1, std::tuple<profiles...>>;
-  using last_profile_index = std::integral_constant<size_t, sizeof...(profiles) - 1>;
-
-  using profile_node = std::variant<typename profiles::node...>;
-  using profile_node_tuple = std::tuple<typename profiles::node...>;
-
-  template <typename entry, typename... rest>
-  struct node_to_profile_impl;
-
-  template<typename node, typename profile, typename... rest>
-  struct node_to_profile_impl<node, profile, rest...> {
-    using type = std::conditional_t<
-            std::is_same_v<node, typename profile::node>,
-            profile,
-            typename node_to_profile_impl<node, rest...>::type
-    >;
-  };
-
-  template<typename node, typename profile>
-  struct node_to_profile_impl<node, profile> {
-    using type = std::conditional_t<
-            std::is_same_v<node, typename profile::node>,
-            profile,
-            void
-    >;
-    static_assert(!std::is_same_v<node, type>, "Node type does not match any profile.");
-  };
-
-  template<typename node>
-  struct node_to_profile : node_to_profile_impl<node, profiles...> {};
+  using key = node_idx_t;
 
   struct node {
     friend bool operator==(node, node) = default;
@@ -94,61 +65,24 @@ struct combi_profile {
       return std::visit([&](auto const& n) -> std::ostream& { return n.print(out, w); }, n_);
     }
 
-
-    static constexpr node invalid() noexcept { return { first_profile::node::invalid(), 0 }; }
     constexpr node_idx_t get_node() const noexcept {
         return std::visit([](auto const& n) { return n.get_node(); }, n_);
     }
-    constexpr node get_key() const noexcept {
-      return *this;
+
+    constexpr key get_key() const noexcept {
+      return std::visit([](auto const& n) { return n.get_node(); }, n_);
     }
 
     profile_node n_;
-    std::size_t template_idx;
   };
-
-  using profile_key = std::variant<typename profiles::key...>;
-  using key = node;
 
   struct hash {
     using is_avalanching = void;
-    using hash_variant = std::variant<typename profiles::hash...>;
-
-    std::array<hash_variant, sizeof...(profiles)> hashes_ = {typename profiles::hash{}...};
-
-    template <typename hash, typename... rest>
-    struct hash_to_profile_impl;
-
-    template <typename hash, typename profile, typename... rest>
-    struct hash_to_profile_impl<hash, profile, rest...> {
-      using type = std::conditional_t<
-              std::is_same_v<hash, typename profile::hash>,
-              profile,
-              typename hash_to_profile_impl<hash, rest...>::type
-      >;
-    };
-
-    template <typename hash, typename profile>
-    struct hash_to_profile_impl<hash, profile> {
-      using type = std::conditional_t<
-              std::is_same_v<hash, typename profile::hash>,
-              profile,
-              void
-      >;
-      static_assert(!std::is_same_v<hash, type>, "Hash type does not match any profile.");
-    };
-
     auto operator()(key const n) const noexcept -> std::uint64_t {
-      auto const idx = n.template_idx;
-      return std::visit([&](auto const& h) {
-        using HashType = std::decay_t<decltype(h)>;
-        using NodeType = typename hash_to_profile_impl<HashType, profiles...>::type::node;
-        return h(std::get<NodeType>(n.n_).get_key());
-      }, hashes_[idx]);
+      using namespace ankerl::unordered_dense::detail;
+      return wyhash::hash(to_idx(n));
     }
   };
-
-  using profile_label = std::variant<typename profiles::label...>;
 
   struct label {
     label(node const n, cost_t const c) : n_{n}, cost_{c} {}
@@ -162,82 +96,90 @@ struct combi_profile {
     cost_t cost_;
   };
 
-  using profile_entry = std::variant<typename profiles::entry...>;
-  using profile_entry_tuple = std::tuple<typename profiles::entry...>;
-
-  // Metafunction to map entry types to their corresponding profile types
-  template <typename entry, typename... rest>
-  struct entry_to_profile_impl;
-
-  template <typename entry, typename profile, typename... rest>
-  struct entry_to_profile_impl<entry, profile, rest...> {
-    using type = std::conditional_t<
-        std::is_same_v<entry, typename profile::entry>,
-        profile,
-        typename entry_to_profile_impl<entry, rest...>::type
-    >;
-  };
-
-  template <typename entry, typename profile>
-  struct entry_to_profile_impl<entry, profile> {
-    using type = std::conditional_t<
-        std::is_same_v<entry, typename profile::entry>,
-        profile,
-        void
-    >;
-    static_assert(!std::is_same_v<entry, type>, "Entry type does not match any profile.");
-  };
-
-  template <typename entry>
-  struct entry_to_profile : entry_to_profile_impl<entry, profiles...> {};
 
   struct entry {
 
-    entry() {
-      //fill entries with default constructed entries
-      entries = {typename profiles::entry{}...};
+    template<typename T>
+    constexpr size_t get_offset(typename T::node const& n) const noexcept {
+      if constexpr (requires(const T& t) { T::get_index(n); }) {
+        return T::get_index(n);
+      } else {
+        return 0;
+      }
+    }
+
+    constexpr size_t get_index(node const n) const noexcept {
+      return visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) -> size_t {
+        return get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+      });
     }
 
     constexpr cost_t cost(node const n) const noexcept {
-      auto const idx = n.template_idx;
-      return std::visit([&](auto const& e) {
-        using EntryType = std::decay_t<decltype(e)>;
-        using NodeType = typename entry_to_profile<EntryType>::type::node;
-        return e.cost(std::get<NodeType>(n.n_));
-      }, entries[idx]);
+      return visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) -> cost_t {
+        auto const& entry = std::get<index>(entries_);
+        return entry.cost(profile_node_);
+      });
     }
 
+    template<direction SearchDir>
     constexpr bool update(label const& l,
                           node const n,
                           cost_t const c,
                           node const pred) noexcept {
-      auto const idx = n.template_idx;
+      return visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) -> bool {
+        auto& entry = std::get<index>(entries_);
 
-      return std::visit([&](auto& e) {
-        using EntryType = std::decay_t<decltype(e)>;
-        using NodeType = typename entry_to_profile<EntryType>::type::node;
-        return e.update({std::get<NodeType>(l.n_.n_), l.cost_}, std::get<NodeType>(n.n_), c, std::get<NodeType>(pred.n_));
-      }, entries[idx]);
+        if (index == pred.n_.index()) {
+
+          return entry.template update<SearchDir>(
+            {std::get<index>(l.n_.n_), l.cost_},
+            profile_node_,
+            c,
+            std::get<index>(pred.n_)
+          );
+        }
+
+
+        auto updated = entry.template update<SearchDir>(
+            {std::tuple_element_t<index, profile_tuple>::template get_starting_node_pred<SearchDir>(), l.cost_},
+            profile_node_,
+            c,
+            std::tuple_element_t<index, profile_tuple>::template get_starting_node_pred<SearchDir>()
+          );
+
+        if (updated) {
+          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          pred_[transition_index] = pred;
+        }
+
+        return updated;
+      });
     }
 
-    constexpr std::optional<node> pred(node const n) const noexcept {
-      auto const idx = n.template_idx;
+    constexpr std::optional<node> pred(node const n, direction const dir) const noexcept {
 
-      return std::visit([&](auto const& e) -> std::optional<node> {
-          using EntryType = std::decay_t<decltype(e)>;
-          using NodeType = typename entry_to_profile<EntryType>::type::node;
+      return visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) -> std::optional<node> {
 
-          if (auto const p = e.pred(std::get<NodeType>(n.n_))) {
-              return std::optional{node{*p, n.template_idx}};
-          }
+        auto const& entry = std::get<index>(entries_);
 
+        if (auto const& p = entry.pred(profile_node_, dir)) {
+          return node{profile_node{std::in_place_index<index>, *p}};
+        }
+
+        if ((dir == direction::kForward && index == 0) || (dir == direction::kBackward && index == last_profile_index::value)) {
           return std::nullopt;
-      }, entries[idx]);
+        } else {
+          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          return pred_[transition_index];
+        }
+      });
     }
 
     void write(node, path&) const {}
 
-    std::array<profile_entry, sizeof...(profiles)> entries;
+    using profile_entry_tuple = typename profile_types<profile_tuple>::profile_entry_tuple;
+    profile_entry_tuple entries_ = profile_entry_tuple{};
+    std::array<node, (std::tuple_size_v<profile_tuple> - 1) * 32> pred_;
   };
 
   template <typename Fn>
@@ -249,59 +191,36 @@ struct combi_profile {
                                  Fn&& f) {
     if (dir == direction::kForward) {
       first_profile::resolve_start_node(w, way, n, level, dir, [&](typename first_profile::node first_profile_node) {
-        f(node{first_profile_node, 0});
+        f(node{profile_node{std::in_place_index<0>, first_profile_node}});
       });
     } else {
       last_profile::resolve_start_node(w, way, n, level, dir, [&](typename last_profile::node last_profile_node) {
-        f(node{last_profile_node, last_profile_index::value});
+        f(node{profile_node{std::in_place_index<last_profile_index::value>, last_profile_node}});
       });
+    }
+  }
+
+  template<direction SearchDir>
+  static constexpr node get_starting_node_pred() noexcept {
+    if (SearchDir == direction::kForward) {
+      return node{profile_node{std::in_place_index<0>, first_profile::template get_starting_node_pred<SearchDir>()}};
+    } else {
+      return node{profile_node{std::in_place_index<last_profile_index::value>, last_profile::template get_starting_node_pred<SearchDir>()}};
     }
   }
 
   template <typename Fn>
-  static void resolve_all(ways::routing const& w,
-                          node_idx_t const n,
-                          level_t const level,
+  static void resolve_all(const ways::routing& w,
+                          node_idx_t n,
+                          level_t level,
                           Fn&& fn) {
-    (profiles::resolve_all(w, n, level, [&](auto&& profile_node) {
-      fn(node{profile_node, 0});
-    }), ...);
-  }
+    [&]<std::size_t... I>(std::index_sequence<I...>) {
+      (std::tuple_element_t<I, profile_tuple>::resolve_all(w, n, level, [&](auto const& profile_node_) {
+        fn(node{profile_node{std::in_place_index<I>, std::forward<decltype(profile_node_)>(profile_node_)}});
+      }), ...);
+    }(std::make_index_sequence<std::tuple_size_v<profile_tuple>>{});
 
-  template <direction SearchDir, typename CurrentProfile, typename NextProfile, bool HasDestinationNode = has_destination_node<CurrentProfile>::value, bool HasSourceNode = has_source_node<NextProfile>::value>
-  struct next_node_impl;
 
-  template<direction SearchDir, typename CurrentProfile, typename NextProfile>
-  struct next_node_impl<SearchDir, CurrentProfile, NextProfile, false, false> {
-    static typename get_source_node<NextProfile>::type next_node(typename CurrentProfile::node const n) {
-      return n;
-    }
-  };
-
-  template<direction SearchDir, typename CurrentProfile, typename NextProfile>
-  struct next_node_impl<SearchDir, CurrentProfile, NextProfile, true, false> {
-    static typename get_destination_node<CurrentProfile>::type next_node(typename CurrentProfile::node const n) {
-      return CurrentProfile::destination_node(n);
-    }
-  };
-
-  template<direction SearchDir, typename CurrentProfile, typename NextProfile>
-  struct next_node_impl<SearchDir, CurrentProfile, NextProfile, false, true> {
-    static typename NextProfile::node next_node(typename CurrentProfile::node const n) {
-      return NextProfile::to_node(n);
-    }
-  };
-
-  template<direction SearchDir, typename CurrentProfile, typename NextProfile>
-  struct next_node_impl<SearchDir, CurrentProfile, NextProfile, true, true> {
-    static typename NextProfile::node next_node(typename CurrentProfile::node const n) {
-      return NextProfile::to_node(CurrentProfile::destination_node(n));
-    }
-  };
-
-  template <direction SearchDir, typename CurrentProfile, typename NextProfile>
-  static auto next_node(typename CurrentProfile::node const n) {
-    return next_node_impl<SearchDir, CurrentProfile, NextProfile>::next_node(n);
   }
 
   template <direction SearchDir, bool WithBlocked, typename Fn>
@@ -309,10 +228,10 @@ struct combi_profile {
                         node const n,
                         bitvec<node_idx_t> const* blocked,
                         Fn&& fn) {
-    std::visit([&](auto const& profile_node) {
-      using NodeType = std::decay_t<decltype(profile_node)>;
-      using Profile = typename node_to_profile<NodeType>::type;
-      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node, blocked, [&](
+    visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) {
+      using NodeType = std::decay_t<decltype(profile_node_)>;
+      using Profile = std::tuple_element_t<index, profile_tuple>;
+      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, [&](
         NodeType adjacent_profile_node,
         cost_t const cost,
         distance_t const dist,
@@ -320,51 +239,60 @@ struct combi_profile {
         std::uint16_t const from,
         std::uint16_t const to
       ) {
-        fn(node{adjacent_profile_node, n.template_idx}, cost, dist, way, from, to);
+        fn(node{profile_node{std::in_place_index<index>, adjacent_profile_node}}, cost, dist, way, from, to);
       });
-    }, n.n_);
 
-    if constexpr (SearchDir == direction::kBackward) {
-      return;
-    }
+      if constexpr (SearchDir == direction::kBackward && index > 0) {
+        using transition = std::tuple_element_t<index - 1, transition_tuple>;
 
-    if (n.template_idx == last_profile_index::value) {
-      return;
-    }
+        if (transition::operator()(w, n.get_node(), blocked)) {
+          using NextProfile = std::tuple_element_t<index - 1, profile_tuple>;
+          using NextProfileNode = typename NextProfile::node;
 
-    auto const next_idx = n.template_idx + (SearchDir == direction::kForward ? 1 : 1);
-    auto const next_profile = profiles_[next_idx];
+          if (NextProfile::node_cost(w.node_properties_[n.get_node()]) == kInfeasible) {
+            return;
+          }
 
-    std::visit([&](auto const& profile) {
-      using NextProfile = std::decay_t<decltype(profile)>;
-
-      static_assert(!std::is_same_v<NextProfile, first_profile>, "profile should not match first profile.");
-
-      std::visit([&](auto const& profile_node) {
-        using NodeType = std::decay_t<decltype(profile_node)>;
-        using CurrentProfile = typename node_to_profile<NodeType>::type;
-
-        auto next_node = combi_profile::next_node<SearchDir, CurrentProfile, NextProfile>(profile_node);
-
-        using NextNodeType = std::decay_t<decltype(next_node)>;
-
-        if constexpr (!std::is_same_v<NextNodeType, typename NextProfile::node>) {
-          return;
+          NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+              NextProfileNode adjacent_profile_node,
+              cost_t const cost,
+              distance_t const dist,
+              way_idx_t const way,
+              std::uint16_t const from,
+              std::uint16_t const to
+            ) {
+              fn(node{profile_node{std::in_place_index<index - 1>, adjacent_profile_node}}, cost, dist, way, from, to);
+            });
+          });
         }
+      } else if constexpr (SearchDir == direction::kForward && index < last_profile_index::value) {
+        using transition = std::tuple_element_t<index, transition_tuple>;
 
-        static_assert(std::is_same_v<NextNodeType, typename NextProfile::node>, "Node type does not match any profile.");
-        NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_node, blocked, [&](
-          typename NextProfile::node adjacent_profile_node,
-          cost_t const cost,
-          distance_t const dist,
-          way_idx_t const way,
-          std::uint16_t const from,
-          std::uint16_t const to
-        ) {
-          fn(node{adjacent_profile_node, next_idx}, cost, dist, way, from, to);
-        });
-      }, n.n_);
-    }, next_profile);
+        if (transition::operator()(w, n.get_node(), blocked)) {
+          using NextProfile = std::tuple_element_t<index + 1, profile_tuple>;
+          using NextProfileNode = typename NextProfile::node;
+
+          if (NextProfile::node_cost(w.node_properties_[n.get_node()]) == kInfeasible) {
+            return;
+          }
+
+          NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+              NextProfileNode adjacent_profile_node,
+              cost_t const cost,
+              distance_t const dist,
+              way_idx_t const way,
+              std::uint16_t const from,
+              std::uint16_t const to
+            ) {
+              fn(node{profile_node{std::in_place_index<index + 1>, adjacent_profile_node}}, cost, dist, way, from, to);
+            });
+          });
+        }
+      }
+
+    });
   }
 
   static bool is_dest_reachable(ways::routing const& w,
@@ -373,10 +301,18 @@ struct combi_profile {
                               direction const way_dir,
                               direction const search_dir) {
     if (search_dir == direction::kForward) {
-      return first_profile::is_dest_reachable(w, std::get<typename first_profile::node>(n.n_), way, way_dir, search_dir);
+      if (n.n_.index() > 0) {
+        return false;
+      }
+
+      return first_profile::is_dest_reachable(w, std::get<0>(n.n_), way, way_dir, search_dir);
     }
 
-    return last_profile::is_dest_reachable(w, std::get<typename last_profile::node>(n.n_), way, way_dir, search_dir);
+    if (n.n_.index() < last_profile_index::value) {
+      return false;
+    }
+
+    return last_profile::is_dest_reachable(w, std::get<last_profile_index::value>(n.n_), way, way_dir, search_dir);
   }
 
 
@@ -385,12 +321,13 @@ struct combi_profile {
                                    direction const search_dir,
                                    std::uint16_t const dist) {
     if (search_dir == direction::kForward) {
-      return first_profile::way_cost(e, dir, search_dir, dist);
+      auto l = first_profile::way_cost(e, dir, search_dir, dist);
+      return l;
     }
 
     return last_profile::way_cost(e, dir, search_dir, dist);
   }
 };
 
-using test_profile = combi_profile<foot<false>, foot_car<false>, car>;
+using foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
 }

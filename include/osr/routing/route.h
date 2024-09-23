@@ -20,7 +20,7 @@ enum class search_profile : std::uint8_t {
   kCar,
   kCarParking,
   kCarParkingWheelchair,
-  kTest,
+  kFootCarFoot,
 };
 
 search_profile to_profile(std::string_view);

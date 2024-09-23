@@ -196,8 +196,9 @@ struct http_server::impl {
       case search_profile::kCarParkingWheelchair:
         send_graph_response<car_parking<true>>(req, cb, gj);
         break;
-      case search_profile::kTest:
-        send_graph_response<test_profile>(req, cb, gj);
+      case search_profile::kFootCarFoot:
+        send_graph_response<foot_car_foot_profile>(req, cb, gj);
+        break;
       default: throw utl::fail("not implemented");
     }
   }
