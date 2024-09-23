@@ -1,3 +1,6 @@
+#include <osr/routing/profiles/combi_profile.h>
+#include <osr/routing/profiles/foot.h>
+
 #include <filesystem>
 #include <thread>
 #include <vector>
@@ -10,12 +13,13 @@
 
 #include "conf/options_parser.h"
 
-#include "utl/timer.h"
-
 #include "osr/lookup.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/route.h"
 #include "osr/ways.h"
+
+#include "osr/benchmark/test_case.h"
+#include "osr/benchmark/csv_writer.h"
 
 namespace fs = std::filesystem;
 using namespace osr;
@@ -27,12 +31,14 @@ public:
     param(threads_, "threads,t", "Number of routing threads");
     param(n_queries_, "n", "Number of queries");
     param(max_dist_, "r", "Radius");
+    param(output_path_, "output,o", "Output path");
   }
 
   fs::path data_dir_{"osr"};
   unsigned n_queries_{50};
   unsigned max_dist_{1200};
   unsigned threads_{std::thread::hardware_concurrency()};
+  fs::path output_path_{"results.csv"};
 };
 
 int main(int argc, char const* argv[]) {
@@ -43,7 +49,9 @@ int main(int argc, char const* argv[]) {
   if (parser.help()) {
     parser.print_help(std::cout);
     return 0;
-  } else if (parser.version()) {
+  }
+
+  if (parser.version()) {
     return 0;
   }
 
@@ -58,28 +66,16 @@ int main(int argc, char const* argv[]) {
 
   auto const w = ways{opt.data_dir_, cista::mmap::protection::READ};
 
-  auto timer = utl::scoped_timer{"timer"};
-  auto threads = std::vector<std::thread>(std::max(1U, opt.threads_));
-  auto i = std::atomic_size_t{0U};
-  for (auto& t : threads) {
-    t = std::thread([&]() {
-      auto d = dijkstra<car>{};
-      auto h = cista::BASE_HASH;
-      auto n = 0U;
-      while (i.fetch_add(1U) < opt.n_queries_) {
-        auto const start =
-            node_idx_t{cista::hash_combine(h, ++n, i.load()) % w.n_nodes()};
-        d.reset(opt.max_dist_);
-        d.add_start(car::label{car::node{start, 0, direction::kForward}, 0U});
-        d.add_start(car::label{car::node{start, 0, direction::kBackward}, 0U});
-        d.run<direction::kForward, false>(*w.r_, opt.max_dist_, nullptr);
-      }
-    });
-  }
+  //using profile = combi_profile<std::tuple<foot<false>>, std::tuple<>>;
+  using profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
 
-  for (auto& t : threads) {
-    t.join();
-  }
+  auto count = std::max(1U, opt.threads_);
 
+  auto run = benchmark::test_case<profile>{static_cast<cost_t>(opt.max_dist_), w};
+  run.runMany<direction::kForward, false>(count, opt.n_queries_);
+  run.wait();
 
+  benchmark::csv_writer writer(opt.output_path_, {"thread index", "duration in microseconds"});
+
+  run.write(writer);
 }

@@ -125,6 +125,10 @@ target_link_libraries(osr-extract osr)
 add_executable(osr-benchmark exe/benchmark.cc)
 target_link_libraries(osr-benchmark osr)
 
+add_executable(osr-test-case-1 exe/benchmark/test_case_1.cpp)
+target_link_libraries(osr-test-case-1 osr)
+target_include_directories(osr-test-case-1 PRIVATE exe/benchmark/include)
+
 file(GLOB_RECURSE osr-backend-src exe/backend/*.cc)
 add_executable(osr-backend ${osr-backend-src})
 target_link_libraries(osr-backend osr web-server conf boost-json)
