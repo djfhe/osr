@@ -1,3 +1,4 @@
+#include <osr/routing/profiles/car_parking.h>
 #include <osr/routing/profiles/combi_profile.h>
 #include <osr/routing/profiles/foot.h>
 
@@ -31,15 +32,26 @@ public:
     param(threads_, "threads,t", "Number of routing threads");
     param(n_queries_, "n", "Number of queries");
     param(max_dist_, "r", "Radius");
-    param(output_path_, "output,o", "Output path");
   }
 
   fs::path data_dir_{"osr"};
-  unsigned n_queries_{50};
+  unsigned n_queries_{500};
   unsigned max_dist_{1200};
   unsigned threads_{std::thread::hardware_concurrency()};
-  fs::path output_path_{"results.csv"};
 };
+
+
+template<typename Profile>
+void runBenchmark(const fs::path& output_path, unsigned threads, unsigned iterations, unsigned max_dist, const osr::ways& w) {
+  auto run = benchmark::test_case<Profile>{static_cast<cost_t>(max_dist), w};
+  auto count = std::max(1U, threads);
+  run.template runMany<direction::kForward, false>(count, iterations);
+  run.wait();
+
+  benchmark::csv_writer writer(output_path, {"thread index", "duration in microseconds", "visited nodes"});
+
+  run.write(writer);
+}
 
 int main(int argc, char const* argv[]) {
   auto opt = settings{};
@@ -66,16 +78,46 @@ int main(int argc, char const* argv[]) {
 
   auto const w = ways{opt.data_dir_, cista::mmap::protection::READ};
 
-  //using profile = combi_profile<std::tuple<foot<false>>, std::tuple<>>;
-  using profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
+  //determine number of nodes and ways accessable by car, foot
+  std::cout << "Total nodes: " << w.r_->node_properties_.size() << std::endl;
+      std::cout << "Total ways: " << w.r_->way_properties_.size() << std::endl;
 
-  auto count = std::max(1U, opt.threads_);
+  long long car_nodes = 0;
+  long long foot_nodes = 0;
+  long long car_ways = 0;
+  long long foot_ways = 0;
 
-  auto run = benchmark::test_case<profile>{static_cast<cost_t>(opt.max_dist_), w};
-  run.runMany<direction::kForward, false>(count, opt.n_queries_);
-  run.wait();
+  for (auto node_property : w.r_->node_properties_) {
+    car_nodes += node_property.is_car_accessible();
+    foot_nodes += node_property.is_walk_accessible();
+  }
 
-  benchmark::csv_writer writer(opt.output_path_, {"thread index", "duration in microseconds"});
+  for (auto way_property : w.r_->way_properties_) {
+    car_ways += way_property.is_car_accessible();
+    foot_ways += way_property.is_foot_accessible();
+  }
 
-  run.write(writer);
+  std::cout << "Car nodes: " << car_nodes << std::endl;
+  std::cout << "Foot nodes: " << foot_nodes << std::endl;
+  std::cout << "Car ways: " << car_ways << std::endl;
+        std::cout << "Foot ways: " << foot_ways << std::endl;
+
+  using generic_car_foot_profile = combi_profile<std::tuple<car, foot<false>>, std::tuple<transitions::is_parking>>;
+  using specialized_car_foot_profile = car_parking<false>;
+  using car_profile = car;
+  using foot_profile = foot<false>;
+
+  fs::path result_path = "./results/";
+  fs::create_directories(result_path);
+
+  fs::path foot_result_path = result_path / "foot.csv";
+  fs::path car_result_path = result_path / "car.csv";
+  fs::path specialized_result_path = result_path / "specialized.csv";
+  fs::path generic_result_path = result_path / "generic.csv";
+
+
+  runBenchmark<foot_profile>(foot_result_path, opt.threads_, opt.n_queries_, opt.max_dist_, w);
+  runBenchmark<car_profile>(car_result_path, opt.threads_, opt.n_queries_, opt.max_dist_, w);
+  runBenchmark<specialized_car_foot_profile>(specialized_result_path, opt.threads_, opt.n_queries_, opt.max_dist_, w);
+  runBenchmark<generic_car_foot_profile>(generic_result_path, opt.threads_, opt.n_queries_, opt.max_dist_, w);
 }

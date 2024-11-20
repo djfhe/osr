@@ -329,5 +329,5 @@ struct combi_profile {
   }
 };
 
-using foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
+using foot_car_foot_profile = combi_profile<std::tuple<car, foot<false>>, std::tuple<transitions::is_parking>>;
 }
