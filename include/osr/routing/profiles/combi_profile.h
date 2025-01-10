@@ -17,7 +17,10 @@ auto compile_switch(T i, std::integer_sequence<T, Is...>, F f) {
   } else {
     return_type ret;
     std::initializer_list<int> ({(i == Is ? (ret = f(std::integral_constant<T, Is>{})), 0 : 0)...});
-    return ret;
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wconditional-uninitialized"
+    return ret; // NOLINT(clang-diagnostic-conditional-uninitialized): this will be initialized in the fold expression
+    #pragma GCC diagnostic pop
   }
 }
 
@@ -148,7 +151,7 @@ struct combi_profile {
           );
 
         if (updated) {
-          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          auto const transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
           pred_[transition_index] = pred;
         }
 
@@ -169,7 +172,7 @@ struct combi_profile {
         if ((dir == direction::kForward && index == 0) || (dir == direction::kBackward && index == last_profile_index::value)) {
           return std::nullopt;
         } else {
-          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          auto const transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
           return pred_[transition_index];
         }
       });
@@ -233,7 +236,7 @@ struct combi_profile {
       using Profile = std::tuple_element_t<index, profile_tuple>;
       Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, [&](
         NodeType adjacent_profile_node,
-        cost_t const cost,
+        std::uint32_t const cost,
         distance_t const dist,
         way_idx_t const way,
         std::uint16_t const from,
@@ -256,7 +259,7 @@ struct combi_profile {
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
             NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
               NextProfileNode adjacent_profile_node,
-              cost_t const cost,
+              std::uint32_t const cost,
               distance_t const dist,
               way_idx_t const way,
               std::uint16_t const from,
@@ -280,7 +283,7 @@ struct combi_profile {
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
             NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
               NextProfileNode adjacent_profile_node,
-              cost_t const cost,
+              std::uint32_t const cost,
               distance_t const dist,
               way_idx_t const way,
               std::uint16_t const from,
@@ -329,5 +332,5 @@ struct combi_profile {
   }
 };
 
-using foot_car_foot_profile = combi_profile<std::tuple<car, foot<false>>, std::tuple<transitions::is_parking>>;
+using combi_foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
 }

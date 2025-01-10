@@ -1,9 +1,9 @@
 #pragma once
 
+#include "utl/for_each_bit_set.h"
+
 #include "osr/routing/tracking.h"
 #include "osr/ways.h"
-
-#include "boost/integer_traits.hpp"
 
 namespace osr {
 
@@ -19,10 +19,6 @@ struct foot {
       return {.n_ = node_idx_t::invalid(), .lvl_{level_t::invalid()}};
     }
     constexpr node_idx_t get_node() const noexcept { return n_; }
-
-    boost::json::object geojson_properties(ways const&) const {
-      return boost::json::object{{"node_id", n_.v_}, {"type", "foot"}};
-    }
 
     constexpr node get_key() const noexcept { return *this; }
 
@@ -268,8 +264,8 @@ struct foot {
                                       Fn&& f) {
     auto const p = w.node_properties_[n];
     if (p.is_multi_level()) {
-      for_each_set_bit(get_elevator_multi_levels(w, n),
-                       [&](auto&& l) { f(level_t{l}); });
+      utl::for_each_set_bit(get_elevator_multi_levels(w, n),
+                            [&](auto&& l) { f(level_t{l}); });
     } else {
       f(p.from_level());
       f(p.to_level());
@@ -287,8 +283,8 @@ struct foot {
 
     if (p.is_multi_level()) {
       auto const levels = get_elevator_multi_levels(w, n);
-      return has_bit_set(levels, to_idx(a)) &&
-             (b == level_t::invalid() || has_bit_set(levels, to_idx(b)));
+      return utl::has_bit_set(levels, to_idx(a)) &&
+             (b == level_t::invalid() || utl::has_bit_set(levels, to_idx(b)));
     } else {
       return (a == p.from_level() || a == p.to_level()) &&
              (b == level_t::invalid() || b == p.from_level() ||
