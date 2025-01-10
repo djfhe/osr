@@ -277,7 +277,9 @@ struct combi_profile {
       } else if constexpr (SearchDir == direction::kForward && index < last_profile_index::value) {
         using transition = std::tuple_element_t<index, transition_tuple>;
 
-        if (transition::operator()(w, n.get_node(), blocked)) {
+        const cost_t transition_cost = transition::operator()(w, n.get_node(), blocked);
+
+        if (transition_cost != kInfeasible) {
           using NextProfile = std::tuple_element_t<index + 1, profile_tuple>;
           using NextProfileNode = typename NextProfile::node;
 
@@ -294,7 +296,7 @@ struct combi_profile {
               std::uint16_t const from,
               std::uint16_t const to
             ) {
-              fn(node{profile_node{std::in_place_index<index + 1>, adjacent_profile_node}}, cost, dist, way, from, to);
+              fn(node{profile_node{std::in_place_index<index + 1>, adjacent_profile_node}}, cost + transition_cost, dist, way, from, to);
             });
           });
         }
@@ -337,5 +339,5 @@ struct combi_profile {
   }
 };
 
-using combi_foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking, transitions::is_parking>>;
+using combi_foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking<30U>, transitions::is_parking<30U>>>;
 }
