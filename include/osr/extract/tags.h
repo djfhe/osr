@@ -14,9 +14,23 @@ enum class override : std::uint8_t { kNone, kWhitelist, kBlacklist };
 
 struct tags {
   explicit tags(osmium::OSMObject const& o) {
+    auto const add_levels = [](auto&& t, level_bits_t& level_bits) {
+      auto s = utl::cstr{t.value()};
+      while (s) {
+        auto l = 0.0F;
+        utl::parse_arg(s, l);
+        auto const lvl = level_t{std::clamp(l, kMinLevel, kMaxLevel)};
+        level_bits |= (1U << to_idx(lvl));
+        if (s) {
+          ++s;
+        }
+      }
+    };
+
     for (auto const& t : o.tags()) {
       switch (cista::hash(std::string_view{t.key()})) {
         using namespace std::string_view_literals;
+        case cista::hash("type"): is_route_ |= t.value() == "route"sv; break;
         case cista::hash("parking"): is_parking_ = true; break;
         case cista::hash("amenity"):
           is_parking_ |=
@@ -52,23 +66,26 @@ struct tags {
             is_platform_ = true;
           }
           break;
-        case cista::hash("level"): {
+        case cista::hash("indoor:level"): [[fallthrough]];
+        case cista::hash("level"):
           has_level_ = true;
-          auto s = utl::cstr{t.value()};
-          while (s) {
-            auto l = 0.0F;
-            utl::parse_arg(s, l);
-            auto const lvl = to_level(std::clamp(l, kMinLevel, kMaxLevel));
-            level_bits_ |= (1U << to_idx(lvl));
-            if (s) {
-              ++s;
-            }
+          add_levels(t, level_bits_);
+          break;
+        case cista::hash("layer"):
+          // not correct but layer seems to be used like level in some places :/
+          has_layer_ = true;
+          add_levels(t, layer_bits_);
+          break;
+        case cista::hash("name"): name_ = t.value(); break;
+        case cista::hash("ref"): ref_ = t.value(); break;
+        case cista::hash("entrance"): is_entrance_ = true; break;
+        case cista::hash("sidewalk"):
+        case cista::hash("sidewalk:left"): [[fallthrough]];
+        case cista::hash("sidewalk:right"):
+          if (t.value() == "separate"sv) {
+            sidewalk_separate_ = true;
           }
           break;
-        }
-        case cista::hash("name"): name_ = t.value(); break;
-        case cista::hash("entrance"): is_entrance_ = true; break;
-        case cista::hash("sidewalk"): sidewalk_ = t.value(); break;
         case cista::hash("cycleway"): cycleway_ = t.value(); break;
         case cista::hash("motorcar"):
           motorcar_ = t.value();
@@ -118,6 +135,9 @@ struct tags {
     }
   }
 
+  // https://wiki.openstreetmap.org/wiki/Relation:route
+  bool is_route_{false};
+
   // https://wiki.openstreetmap.org/wiki/Key:oneway
   // https://wiki.openstreetmap.org/wiki/Tag:junction=roundabout
   bool oneway_{false};
@@ -144,7 +164,7 @@ struct tags {
   std::string_view highway_;
 
   // https://wiki.openstreetmap.org/wiki/Key:sidewalk
-  std::string_view sidewalk_;
+  bool sidewalk_separate_{false};
 
   // https://wiki.openstreetmap.org/wiki/Key:cycleway
   std::string_view cycleway_;
@@ -154,6 +174,9 @@ struct tags {
 
   // https://wiki.openstreetmap.org/wiki/Key:name
   std::string_view name_;
+
+  // https://wiki.openstreetmap.org/wiki/Key:ref
+  std::string_view ref_;
 
   // https://wiki.openstreetmap.org/wiki/Key:vehicle
   bool is_destination_{false};
@@ -180,6 +203,10 @@ struct tags {
   // https://wiki.openstreetmap.org/wiki/Key:level
   bool has_level_{false};
   level_bits_t level_bits_{0U};
+
+  // https://wiki.openstreetmap.org/wiki/Key:layer
+  bool has_layer_{false};
+  level_bits_t layer_bits_{0U};
 };
 
 template <typename T>
@@ -191,6 +218,10 @@ bool is_accessible(tags const& o, osm_obj_type const type) {
 
 struct foot_profile {
   static override access_override(tags const& t) {
+    if (t.is_route_ || t.sidewalk_separate_) {
+      return override::kBlacklist;
+    }
+
     switch (cista::hash(t.barrier_)) {
       case cista::hash("yes"):
       case cista::hash("wall"):
@@ -252,6 +283,9 @@ struct foot_profile {
 
 struct bike_profile {
   static override access_override(tags const& t) {
+    if (t.is_route_) {
+      return override::kBlacklist;
+    }
 
     switch (cista::hash(t.barrier_)) {
       case cista::hash("yes"):
@@ -304,7 +338,7 @@ struct bike_profile {
 
 struct car_profile {
   static override access_override(tags const& t) {
-    if (t.access_ == override::kBlacklist) {
+    if (t.access_ == override::kBlacklist || t.is_route_) {
       return override::kBlacklist;
     }
 

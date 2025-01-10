@@ -6,12 +6,15 @@
 
 #include "utl/helpers/algorithm.h"
 
+#include "osr/routing/mode.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/foot.h"
 #include "osr/routing/route.h"
 #include "osr/ways.h"
 
 namespace osr {
+
+struct sharing_data;
 
 template <bool IsWheelchair>
 struct car_parking {
@@ -34,12 +37,19 @@ struct car_parking {
   }
 
   struct node {
-    friend bool operator==(node, node) = default;
+    friend bool operator==(node const& a, node const& b) {
+      auto const is_zero = [](level_t const l) {
+        return l == kNoLevel || l == level_t{0.F};
+      };
+      return a.n_ == b.n_ && a.type_ == b.type_ && a.dir_ == b.dir_ &&
+             a.way_ == b.way_ &&
+             (a.lvl_ == b.lvl_ || (is_zero(a.lvl_) && is_zero(b.lvl_)));
+    }
 
     boost::json::object geojson_properties(ways const& w) const {
       auto properties =
           boost::json::object{{"osm_node_id", to_idx(w.node_to_osm_[n_])},
-                              {"level", to_float(lvl_)},
+                              {"level", lvl_.to_float()},
                               {"type", node_type_to_str(type_)}};
       if (is_car_node()) {
         properties.emplace("direction", to_str(dir_));
@@ -48,8 +58,8 @@ struct car_parking {
     }
 
     std::ostream& print(std::ostream& out, ways const& w) const {
-      return out << "(node=" << w.node_to_osm_[n_]
-                 << ", level=" << to_float(lvl_) << ", dir=" << to_str(dir_)
+      return out << "(node=" << w.node_to_osm_[n_] << ", level=" << lvl_
+                 << ", dir=" << to_str(dir_)
                  << ", way=" << w.way_osm_idx_[w.r_->node_ways_[n_][way_]]
                  << ", type=" << node_type_to_str(type_) << ")";
     }
@@ -57,6 +67,10 @@ struct car_parking {
     static constexpr node invalid() noexcept { return node{}; }
     constexpr node_idx_t get_node() const noexcept { return n_; }
     constexpr node_idx_t get_key() const noexcept { return n_; }
+
+    constexpr mode get_mode() const noexcept {
+      return is_car_node() ? mode::kCar : mode::kFoot;
+    }
 
     constexpr bool is_car_node() const noexcept {
       return type_ == node_type::kCar;
@@ -217,7 +231,7 @@ struct car_parking {
         w, n, lvl, [&](footp::node const neighbor) { f(to_node(neighbor)); });
     car::resolve_all(w, n, lvl, [&](car::node const neighbor) {
       auto const p = w.way_properties_[w.node_ways_[n][neighbor.way_]];
-      auto const node_level = lvl == level_t::invalid() ? p.from_level() : lvl;
+      auto const node_level = lvl == kNoLevel ? p.from_level() : lvl;
       f(to_node(neighbor, node_level));
     });
   }
@@ -226,6 +240,7 @@ struct car_parking {
   static void adjacent(ways::routing const& w,
                        node const n,
                        bitvec<node_idx_t> const* blocked,
+                       sharing_data const*,
                        Fn&& fn) {
     static constexpr auto const kFwd = SearchDir == direction::kForward;
     static constexpr auto const kBwd = SearchDir == direction::kBackward;
@@ -234,7 +249,7 @@ struct car_parking {
 
     if (n.is_foot_node() || (kFwd && n.is_car_node() && is_parking)) {
       footp::template adjacent<SearchDir, WithBlocked>(
-          w, to_foot(n), blocked,
+          w, to_foot(n), blocked, nullptr,
           [&](footp::node const neighbor, std::uint32_t const cost,
               distance_t const dist, way_idx_t const way,
               std::uint16_t const from, std::uint16_t const to) {
@@ -246,15 +261,12 @@ struct car_parking {
 
     if (n.is_car_node() || (kBwd && n.is_foot_node() && is_parking)) {
       car::template adjacent<SearchDir, WithBlocked>(
-          w, to_car(n), blocked,
+          w, to_car(n), blocked, nullptr,
           [&](car::node const neighbor, std::uint32_t const cost,
               distance_t const dist, way_idx_t const way,
               std::uint16_t const from, std::uint16_t const to) {
             auto const way_prop = w.way_properties_[way];
-            auto const target_level = way_prop.from_level() == n.lvl_
-                                          ? way_prop.to_level()
-                                          : way_prop.from_level();
-            fn(to_node(neighbor, target_level),
+            fn(to_node(neighbor, way_prop.from_level()),
                cost + (n.is_car_node() ? 0 : kSwitchPenalty), dist, way, from,
                to);
           });
@@ -270,14 +282,13 @@ struct car_parking {
                                  Fn&& f) {
     auto const way_properties = w.way_properties_[way];
     search_dir == direction::kForward
-        ? car::resolve_start_node(w, way, n, lvl, search_dir,
-                                  [&](car::node const cn) {
-                                    auto const node_level =
-                                        lvl == level_t::invalid()
-                                            ? way_properties.from_level()
-                                            : lvl;
-                                    f(to_node(cn, node_level));
-                                  })
+        ? car::resolve_start_node(
+              w, way, n, lvl, search_dir,
+              [&](car::node const cn) {
+                auto const node_level =
+                    lvl == kNoLevel ? way_properties.from_level() : lvl;
+                f(to_node(cn, node_level));
+              })
         : footp::resolve_start_node(
               w, way, n, lvl, search_dir,
               [&](footp::node const fn) { f(to_node(fn)); });

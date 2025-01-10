@@ -1,6 +1,7 @@
 #include "osr/lookup.h"
 
 #include "osr/routing/profiles/bike.h"
+#include "osr/routing/profiles/bike_sharing.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/car_parking.h"
 #include "osr/routing/profiles/foot.h"
@@ -8,14 +9,28 @@
 
 namespace osr {
 
-lookup::lookup(ways const& ways) : rtree_{rtree_new()}, ways_{ways} {
-  utl::verify(rtree_ != nullptr, "rtree creation failed");
-  for (auto i = way_idx_t{0U}; i != ways.n_ways(); ++i) {
-    insert(i);
-  }
-}
+lookup::lookup(ways const& ways,
+               std::filesystem::path p,
+               cista::mmap::protection mode)
+    : p_{std::move(p)},
+      mode_{mode},
+      rtree_{mode == cista::mmap::protection::READ
+                 ? *cista::read<cista::mm_rtree<way_idx_t>::meta>(
+                       p_ / "rtree_meta.bin")
+                 : cista::mm_rtree<way_idx_t>::meta{},
+             cista::mm_rtree<way_idx_t>::vector_t{mm("rtree_data.bin")}},
+      ways_{ways} {}
 
-lookup::~lookup() { rtree_free(rtree_); }
+void lookup::build_rtree() {
+  for (auto way = way_idx_t{0U}; way != ways_.n_ways(); ++way) {
+    auto b = geo::box{};
+    for (auto const& c : ways_.way_polylines_[way]) {
+      b.extend(c);
+    }
+    rtree_.insert(b.min_.lnglat_float(), b.max_.lnglat_float(), way);
+  }
+  rtree_.write_meta(p_ / "rtree_meta.bin");
+}
 
 match_t lookup::match(location const& query,
                       bool const reverse,
@@ -45,6 +60,9 @@ match_t lookup::match(location const& query,
     case search_profile::kCombiFootCarFootViaParking:
       return match<combi_foot_car_foot_profile>(query, reverse, search_dir,
                                       max_match_distance, blocked);
+    case search_profile::kBikeSharing:
+      return match<bike_sharing>(query, reverse, search_dir, max_match_distance,
+                                 blocked);
   }
   throw utl::fail("{} is not a valid profile", static_cast<std::uint8_t>(p));
 }
@@ -59,19 +77,6 @@ hash_set<node_idx_t> lookup::find_elevators(geo::box const& b) const {
     }
   });
   return elevators;
-}
-
-void lookup::insert(way_idx_t const way) {
-  auto b = geo::box{};
-  for (auto const& c : ways_.way_polylines_[way]) {
-    b.extend(c);
-  }
-
-  auto const min = b.min_.lnglat();
-  auto const max = b.max_.lnglat();
-  rtree_insert(rtree_, min.data(), max.data(),
-               // NOLINTNEXTLINE(performance-no-int-to-ptr)
-               reinterpret_cast<void*>(static_cast<std::size_t>(to_idx(way))));
 }
 
 }  // namespace osr

@@ -17,10 +17,7 @@ auto compile_switch(T i, std::integer_sequence<T, Is...>, F f) {
   } else {
     return_type ret;
     std::initializer_list<int> ({(i == Is ? (ret = f(std::integral_constant<T, Is>{})), 0 : 0)...});
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wconditional-uninitialized"
-    return ret; // NOLINT(clang-diagnostic-conditional-uninitialized): this will be initialized in the fold expression
-    #pragma GCC diagnostic pop
+    return ret;
   }
 }
 
@@ -44,6 +41,8 @@ struct profile_types<std::tuple<Ts...>> {
 
 namespace osr {
 
+struct sharing_data;
+
 template <typename profile_tuple, typename transition_tuple>
 struct combi_profile {
   static_assert(std::tuple_size_v<profile_tuple> > 0, "At least one profile must be provided.");
@@ -59,6 +58,11 @@ struct combi_profile {
 
   struct node {
     friend bool operator==(node, node) = default;
+
+
+    constexpr mode get_mode() const noexcept {
+      return std::visit([](auto const& n) { return n.get_mode(); }, n_);
+    }
 
     boost::json::object geojson_properties(ways const& w) const {
       return std::visit([&](auto const& n) { return n.geojson_properties(w); }, n_);
@@ -230,11 +234,12 @@ struct combi_profile {
    static void adjacent(ways::routing const& w,
                         node const n,
                         bitvec<node_idx_t> const* blocked,
+                        sharing_data const* sharing,
                         Fn&& fn) {
     visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) {
       using NodeType = std::decay_t<decltype(profile_node_)>;
       using Profile = std::tuple_element_t<index, profile_tuple>;
-      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, [&](
+      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, sharing, [&](
         NodeType adjacent_profile_node,
         std::uint32_t const cost,
         distance_t const dist,
@@ -257,7 +262,7 @@ struct combi_profile {
           }
 
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
-            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, sharing, [&](
               NextProfileNode adjacent_profile_node,
               std::uint32_t const cost,
               distance_t const dist,
@@ -281,7 +286,7 @@ struct combi_profile {
           }
 
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
-            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, sharing, [&](
               NextProfileNode adjacent_profile_node,
               std::uint32_t const cost,
               distance_t const dist,

@@ -2,6 +2,7 @@
 
 #include <ostream>
 
+#include "cista/containers/rtree.h"
 #include "cista/reflection/printable.h"
 
 #include "geo/box.h"
@@ -12,8 +13,6 @@
 #include "utl/cflow.h"
 #include "utl/helpers/algorithm.h"
 #include "utl/pairwise.h"
-
-#include "rtree.h"
 
 #include "osr/location.h"
 #include "osr/routing/profile.h"
@@ -44,7 +43,7 @@ void till_the_end(T const& start,
 struct node_candidate {
   bool valid() const { return node_ != node_idx_t::invalid(); }
 
-  level_t lvl_{level_t::invalid()};
+  level_t lvl_{kNoLevel};
   direction way_dir_{direction::kForward};
   node_idx_t node_{node_idx_t::invalid()};
   double dist_to_node_{0.0};
@@ -70,8 +69,13 @@ using match_t = std::vector<way_candidate>;
 using match_view_t = std::span<way_candidate const>;
 
 struct lookup {
-  lookup(ways const&);
-  ~lookup();
+  lookup(ways const&, std::filesystem::path, cista::mmap::protection);
+
+  void build_rtree();
+
+  cista::mmap mm(char const* file) {
+    return cista::mmap{(p_ / file).generic_string().c_str(), mode_};
+  }
 
   match_t match(location const& query,
                 bool const reverse,
@@ -84,31 +88,27 @@ struct lookup {
   match_t match(location const& query,
                 bool const reverse,
                 direction const search_dir,
-                double const max_match_distance,
+                double max_match_distance,
                 bitvec<node_idx_t> const* blocked) const {
     auto way_candidates = get_way_candidates<Profile>(
         query, reverse, search_dir, max_match_distance, blocked);
-    if (way_candidates.empty()) {
-      way_candidates = get_way_candidates<Profile>(
-          query, reverse, search_dir, max_match_distance * 2U, blocked);
+    auto i = 0U;
+    while (way_candidates.empty() && i++ < 4U) {
+      max_match_distance *= 2U;
+      way_candidates = get_way_candidates<Profile>(query, reverse, search_dir,
+                                                   max_match_distance, blocked);
     }
     return way_candidates;
   }
 
   template <typename Fn>
   void find(geo::box const& b, Fn&& fn) const {
-    auto const min = b.min_.lnglat();
-    auto const max = b.max_.lnglat();
-    rtree_search(
-        rtree_, min.data(), max.data(),
-        [](double const* /* min */, double const* /* max */, void const* item,
-           void* udata) {
-          (*reinterpret_cast<Fn*>(udata))(
-              way_idx_t{static_cast<way_idx_t::value_t>(
-                  reinterpret_cast<std::size_t>(item))});
-          return true;
-        },
-        &fn);
+    auto const min = b.min_.lnglat_float();
+    auto const max = b.max_.lnglat_float();
+    rtree_.search(min, max, [&](auto, auto, way_idx_t const w) {
+      fn(w);
+      return true;
+    });
   }
 
   hash_set<node_idx_t> find_elevators(geo::box const& b) const;
@@ -152,15 +152,13 @@ private:
                                 bitvec<node_idx_t> const* blocked) const {
     auto const way_prop = ways_.r_->way_properties_[wc.way_];
     auto const edge_dir = reverse ? opposite(dir) : dir;
-    auto const way_cost =
-        Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir, 0U);
-    if (way_cost == kInfeasible) {
-      return node_candidate{};
-    }
-
     auto const offroad_cost =
         Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir,
                           static_cast<distance_t>(wc.dist_to_way_));
+    if (offroad_cost == kInfeasible) {
+      return node_candidate{};
+    }
+
     auto c = node_candidate{.lvl_ = lvl,
                             .way_dir_ = dir,
                             .dist_to_node_ = wc.dist_to_way_,
@@ -198,7 +196,9 @@ private:
     return c;
   }
 
-  rtree* rtree_;
+  std::filesystem::path p_;
+  cista::mmap::protection mode_;
+  cista::mm_rtree<way_idx_t> rtree_;
   ways const& ways_;
 };
 
