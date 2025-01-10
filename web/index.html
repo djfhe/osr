@@ -356,9 +356,20 @@
     }
 
     const addRouting = async () => {
+        let route = {
+            type: 'FeatureCollection',
+            features: []
+        }
+
+        try {
+            route = await getRoute();
+        } catch (e) {
+            console.error(e);
+        }
+
         map.addSource('path', {
             type: 'geojson',
-            data: await getRoute()
+            data: route,
         });
         map.addLayer({
             'id': 'path-outline',
