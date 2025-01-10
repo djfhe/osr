@@ -129,6 +129,34 @@ add_executable(osr-test-case-1 exe/benchmark/test_case_1.cpp)
 target_link_libraries(osr-test-case-1 osr)
 target_include_directories(osr-test-case-1 PRIVATE exe/benchmark/include)
 
+add_executable(osr-memory-benchmark-s-car exe/benchmark/memory_benchmark_specialized_car.cpp)
+target_link_libraries(osr-memory-benchmark-s-car osr)
+target_include_directories(osr-memory-benchmark-s-car PRIVATE exe/benchmark/include)
+
+add_executable(osr-memory-benchmark-g-car exe/benchmark/memory_benchmark_generic_car.cpp)
+target_link_libraries(osr-memory-benchmark-g-car osr)
+target_include_directories(osr-memory-benchmark-g-car PRIVATE exe/benchmark/include)
+
+add_executable(osr-runtime-benchmark-car exe/benchmark/runtime_benchmark_car.cpp)
+target_link_libraries(osr-runtime-benchmark-car osr)
+target_include_directories(osr-runtime-benchmark-car PRIVATE exe/benchmark/include)
+
+add_executable(osr-runtime-benchmark-car-profiling exe/benchmark/runtime_benchmark_car_profiling.cpp)
+target_link_libraries(osr-runtime-benchmark-car-profiling osr)
+target_include_directories(osr-runtime-benchmark-car-profiling PRIVATE exe/benchmark/include)
+
+add_executable(osr-memory-benchmark-s-car-parking exe/benchmark/memory_benchmark_specialized_car_parking.cpp)
+target_link_libraries(osr-memory-benchmark-s-car-parking osr)
+target_include_directories(osr-memory-benchmark-s-car-parking PRIVATE exe/benchmark/include)
+
+add_executable(osr-memory-benchmark-g-car-parking exe/benchmark/memory_benchmark_generic_car_parking.cpp)
+target_link_libraries(osr-memory-benchmark-g-car-parking osr)
+target_include_directories(osr-memory-benchmark-g-car-parking PRIVATE exe/benchmark/include)
+
+add_executable(osr-runtime-benchmark-car-parking exe/benchmark/runtime_benchmark_car_parking.cpp)
+target_link_libraries(osr-runtime-benchmark-car-parking osr)
+target_include_directories(osr-runtime-benchmark-car-parking PRIVATE exe/benchmark/include)
+
 file(GLOB_RECURSE osr-backend-src exe/backend/*.cc)
 add_executable(osr-backend ${osr-backend-src})
 target_link_libraries(osr-backend osr web-server conf boost-json)

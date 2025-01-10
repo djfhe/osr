@@ -4,4 +4,6 @@
 /.pkg.mutex
 /.clang-tidy
 /.vs
-/out
+/ou
+/profiling
+/results

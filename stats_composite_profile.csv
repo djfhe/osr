@@ -1,0 +1,2 @@
+average_duration,median_duration,min_duration,max_duration,25th_percentile_duration,50th_percentile_duration,75th_percentile_duration,average_visited_nodes,median_visited_nodes,min_visited_nodes,max_visited_nodes,25th_percentile_visited_nodes,50th_percentile_visited_nodes,75th_percentile_visited_nodes,correlation_coefficient
+19199.26875,4214.5,0,353350,84.0,4214.5,27376.0,18907.20975,6296.5,1,124210,175.0,6296.5,29894.25,0.9129786522025138

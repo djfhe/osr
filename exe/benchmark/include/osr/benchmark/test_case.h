@@ -66,6 +66,44 @@ struct test_case {
     }
   }
 
+  template <osr::direction SearchDir, bool WithBlocked>
+  void runSingle(unsigned const iterations, std::optional<benchmark::csv_writer> writer) {
+    auto max_dist = max_dist_;
+    auto& routing = routing_;
+    auto& ways = ways_;
+    auto& blocked = blocked_;
+
+    auto d = osr::dijkstra<T>{};
+    auto h = cista::BASE_HASH;
+
+    auto runs = thread_result{iterations};
+    for (unsigned j = 0; j < iterations; ++j) {
+      d.reset(max_dist);
+
+      auto const startNode = osr::node_idx_t{cista::hash_combine(h, j) % ways.n_nodes()};
+
+      T::resolve_all(routing, startNode, osr::level_t::invalid(), [&](auto const& n) {
+        d.template add_start<SearchDir>(typename T::label{n, 0});
+      });
+
+      auto start = std::chrono::steady_clock::now();
+      d.template run<SearchDir, WithBlocked>(routing, max_dist, blocked);
+      runs[j] = {std::chrono::steady_clock::now() - start, d.cost_.size()};
+    }
+
+    if (!writer) {
+      return;
+    }
+
+    for (auto const& run : runs) {
+      writer->write_row<std::string>({
+        std::to_string(-1),
+        std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::get<0>(run)).count()),
+        std::to_string(std::get<1>(run))
+      });
+    }
+  }
+
   void wait() {
     for (auto& t : threads_) {
       t.join();
