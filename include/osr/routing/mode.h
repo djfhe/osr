@@ -9,6 +9,7 @@ enum class mode : std::uint8_t {
   kFoot,
   kWheelchair,
   kBike,
+  kBikeRental,
   kCar,
 };
 

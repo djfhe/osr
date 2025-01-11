@@ -12,6 +12,7 @@ std::string_view to_str(mode const m) {
     case mode::kWheelchair: return "wheelchair";
     case mode::kCar: return "car";
     case mode::kBike: return "bike";
+    case mode::kBikeRental: return "bike_rental";
   }
   throw utl::fail("{} is not a valid mode", static_cast<std::uint8_t>(m));
 }

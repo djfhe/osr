@@ -24,7 +24,7 @@
 #include "osr/routing/profiles/car_parking.h"
 #include "osr/routing/profiles/combi_profile.h"
 #include "osr/routing/profiles/foot.h"
-#include "osr/routing/profiles/combi_profile.h"
+#include "osr/routing/profiles/bike_rental.h"
 #include "osr/routing/route.h"
 
 using namespace net;
@@ -204,6 +204,9 @@ struct http_server::impl {
         break;
       case search_profile::kBikeSharing:
         send_graph_response<bike_sharing>(req, cb, gj);
+        break;
+      case search_profile::kBikeRental:
+        send_graph_response<bike_rental>(req, cb, gj);
         break;
       default: throw utl::fail("not implemented");
     }

@@ -40,7 +40,7 @@ struct bike_sharing {
                      .from_level_ = 0,
                      .to_level_ = 0,
                      .is_platform_ = 0,
-                     .is_parking_ = 0};
+                     .is_parking_ = false};
 
   static constexpr auto const kAdditionalNodeProperties =
       node_properties{.from_level_ = 0,
@@ -51,6 +51,7 @@ struct bike_sharing {
                       .is_entrance_ = false,
                       .is_multi_level_ = false,
                       .is_parking_ = false,
+                      .is_bike_rental_ = false,
                       .to_level_ = 0};
 
   enum class node_type : std::uint8_t {

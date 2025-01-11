@@ -132,6 +132,7 @@ std::pair<node_properties, level_bits_t> get_node_properties(tags const& t) {
   p.is_multi_level_ = is_multi;
   p.is_parking_ = t.is_parking_;
   p.to_level_ = to_idx(to);
+  p.is_bike_rental_ = t.is_bike_rental_;
   return {p, t.level_bits_};
 }
 

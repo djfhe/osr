@@ -35,6 +35,7 @@ struct tags {
         case cista::hash("amenity"):
           is_parking_ |=
               (t.value() == "parking"sv || t.value() == "parking_entrance"sv);
+          is_bike_rental_ |= t.value() == "bicycle_rental"sv;
           break;
         case cista::hash("building"):
           is_parking_ |= t.value() == "parking"sv;
@@ -207,17 +208,29 @@ struct tags {
   // https://wiki.openstreetmap.org/wiki/Key:layer
   bool has_layer_{false};
   level_bits_t layer_bits_{0U};
+
+  // https://wiki.openstreetmap.org/wiki/Tag:amenity%3Dbicycle_rental
+  bool is_bike_rental_{false};
 };
 
 template <typename T>
 bool is_accessible(tags const& o, osm_obj_type const type) {
   auto const override = T::access_override(o);
+
+  if (o.is_bike_rental_) {
+    std::cout << "bike rental: " << (override == override::kWhitelist ? "whitelisted" : "blacklisted") << std::endl;
+  }
+
   return override == override::kWhitelist ||
          (T::default_access(o, type) && override != override::kBlacklist);
 }
 
 struct foot_profile {
   static override access_override(tags const& t) {
+    if (t.is_bike_rental_) {
+      return override::kWhitelist;
+    }
+
     if (t.is_route_ || t.sidewalk_separate_) {
       return override::kBlacklist;
     }
@@ -283,6 +296,10 @@ struct foot_profile {
 
 struct bike_profile {
   static override access_override(tags const& t) {
+    if (t.is_bike_rental_) {
+      return override::kWhitelist;
+    }
+
     if (t.is_route_) {
       return override::kBlacklist;
     }

@@ -1,11 +1,13 @@
 #include "osr/lookup.h"
 
+#include <osr/routing/profiles/bike_rental.h>
+
 #include "osr/routing/profiles/bike.h"
 #include "osr/routing/profiles/bike_sharing.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/car_parking.h"
-#include "osr/routing/profiles/foot.h"
 #include "osr/routing/profiles/combi_profile.h"
+#include "osr/routing/profiles/foot.h"
 
 namespace osr {
 
@@ -63,6 +65,9 @@ match_t lookup::match(location const& query,
     case search_profile::kBikeSharing:
       return match<bike_sharing>(query, reverse, search_dir, max_match_distance,
                                  blocked);
+    case search_profile::kBikeRental:
+      return match<bike_rental>(query, reverse, search_dir, max_match_distance,
+                                blocked);
   }
   throw utl::fail("{} is not a valid profile", static_cast<std::uint8_t>(p));
 }

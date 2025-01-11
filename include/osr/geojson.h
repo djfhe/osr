@@ -154,6 +154,8 @@ struct geojson_writer {
           {"is_entrance", p.is_entrance()},
           {"is_elevator", p.is_elevator()},
           {"is_parking", p.is_parking()},
+          {"is_bike_rental", p.is_bike_rental()},
+          {"level", p.from_level().to_float()},
           {"multi_level", p.is_multi_level()},
           {"levels", boost::json::array(levels.begin(), levels.end())},
           {"ways", fmt::format("{}", w_.r_->node_ways_[n] |

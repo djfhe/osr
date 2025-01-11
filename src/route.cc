@@ -1,5 +1,7 @@
 #include "osr/routing/route.h"
 
+#include <osr/routing/profiles/bike_rental.h>
+
 #include "boost/thread/tss.hpp"
 
 #include "utl/concat.h"
@@ -429,6 +431,7 @@ std::vector<std::optional<path>> route(
     case search_profile::kCombiFootCarFootViaParking:
       return r(get_dijkstra<combi_foot_car_foot_profile>());
     case search_profile::kBikeSharing: return r(get_dijkstra<bike_sharing>());
+    case search_profile::kBikeRental: return r(get_dijkstra<bike_rental>());
   }
 
   throw utl::fail("not implemented");
@@ -473,6 +476,7 @@ std::optional<path> route(ways const& w,
     case search_profile::kCombiFootCarFootViaParking:
       return r(get_dijkstra<combi_foot_car_foot_profile>());
     case search_profile::kBikeSharing: return r(get_dijkstra<bike_sharing>());
+    case search_profile::kBikeRental: return r(get_dijkstra<bike_rental>());
   }
 
   throw utl::fail("not implemented");
@@ -514,6 +518,7 @@ std::vector<std::optional<path>> route(
     case search_profile::kCombiFootCarFootViaParking:
       return r(get_dijkstra<combi_foot_car_foot_profile>());
     case search_profile::kBikeSharing: return r(get_dijkstra<bike_sharing>());
+    case search_profile::kBikeRental: return r(get_dijkstra<bike_rental>());
   }
 
   throw utl::fail("not implemented");
@@ -553,6 +558,7 @@ std::optional<path> route(ways const& w,
     case search_profile::kCombiFootCarFootViaParking:
       return r(get_dijkstra<combi_foot_car_foot_profile>());
     case search_profile::kBikeSharing: return r(get_dijkstra<bike_sharing>());
+    case search_profile::kBikeRental: return r(get_dijkstra<bike_rental>());
   }
 
   throw utl::fail("not implemented");

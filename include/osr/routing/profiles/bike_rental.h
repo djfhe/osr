@@ -1,0 +1,178 @@
+#pragma once
+
+#include "boost/json/object.hpp"
+
+#include "osr/routing/mode.h"
+#include "osr/routing/route.h"
+#include "osr/ways.h"
+
+namespace osr {
+
+struct sharing_data;
+
+struct bike_rental {
+  static constexpr auto const kMaxMatchDistance = 100U;
+  static constexpr auto const kOffroadPenalty = 1U;
+
+  struct node {
+
+
+
+    friend bool operator==(node, node) = default;
+
+    static constexpr node invalid() noexcept {
+      return {.n_ = node_idx_t::invalid()};
+    }
+
+    constexpr node_idx_t get_node() const noexcept { return n_; }
+
+    constexpr node get_key() const noexcept { return *this; }
+
+    static constexpr mode get_mode() noexcept { return mode::kBikeRental; }
+
+    std::ostream& print(std::ostream& out, ways const& w) const {
+      return out << "(node=" << w.node_to_osm_[n_] << ")";
+    }
+
+    node_idx_t n_;
+  };
+
+  using key = node;
+
+  struct label {
+    label(node const n, cost_t const c) : n_{n.n_}, cost_{c} {}
+
+    constexpr node get_node() const noexcept { return {n_}; }
+    constexpr cost_t cost() const noexcept { return cost_; }
+
+    void track(label const&, ways::routing const&, way_idx_t, node_idx_t) {}
+
+    node_idx_t n_;
+    cost_t cost_;
+  };
+
+  struct hash {
+    using is_avalanching = void;
+    auto operator()(node const n) const noexcept -> std::uint64_t {
+      using namespace ankerl::unordered_dense::detail;
+      return wyhash::hash(static_cast<std::uint64_t>(to_idx(n.n_)));
+    }
+  };
+
+  struct entry {
+    constexpr std::optional<node> pred(node, direction) const noexcept {
+      return pred_ == node_idx_t::invalid() ? std::nullopt
+                                            : std::optional{node{pred_}};
+    }
+    constexpr cost_t cost(node) const noexcept { return cost_; }
+
+    template<direction>
+    constexpr bool update(label const&,
+                          node,
+                          cost_t const c,
+                          node const pred) noexcept {
+      if (c < cost_) {
+        cost_ = c;
+        pred_ = pred.n_;
+        return true;
+      }
+
+      return false;
+    }
+
+    void write(node, path&) const {}
+
+    node_idx_t pred_{node_idx_t::invalid()};
+    cost_t cost_{kInfeasible};
+  };
+
+  template <typename Fn>
+  static void resolve_start_node(ways::routing const& w,
+                                 way_idx_t,
+                                 node_idx_t const n,
+                                 level_t,
+                                 direction,
+                                 Fn&& f) {
+    if (w.node_properties_[n].is_bike_rental()) {
+      f(node{n});
+    }
+  }
+
+  template<direction SearchDir>
+  static constexpr node get_starting_node_pred() noexcept {
+    return node::invalid();
+  }
+
+  template <typename Fn>
+  static void resolve_all(ways::routing const&,
+                          node_idx_t const n,
+                          level_t,
+                          Fn&& f) {
+    f(node{n});
+  }
+
+  static bool is_dest_reachable(
+      ways::routing const& w, node n, way_idx_t, direction, direction) {
+    return w.node_properties_[n.get_node()].is_bike_rental();
+  }
+
+  template <direction SearchDir, bool WithBlocked, typename Fn>
+  static void adjacent(ways::routing const& w,
+                       node const n,
+                       bitvec<node_idx_t> const* blocked,
+                       sharing_data const*,
+                       Fn&& fn) {
+    for (auto const [way, i] :
+         utl::zip_unchecked(w.node_ways_[n.n_], w.node_in_way_idx_[n.n_])) {
+      auto const expand = [&](direction const way_dir, std::uint16_t const from,
+                              std::uint16_t const to) {
+        // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+        auto const target_node = w.way_nodes_[way][to];
+        if constexpr (WithBlocked) {
+          if (blocked->test(target_node)) {
+            return;
+          }
+        }
+        auto const target_node_prop = w.node_properties_[target_node];
+        if (node_cost(target_node_prop) == kInfeasible) {
+          return;
+        }
+
+        auto const target_way_prop = w.way_properties_[way];
+        if (way_cost(target_way_prop, way_dir, SearchDir, 0U) == kInfeasible) {
+          return;
+        }
+
+        auto const dist = w.way_node_dist_[way][std::min(from, to)];
+        auto const cost = way_cost(target_way_prop, way_dir, SearchDir, dist) +
+                          node_cost(target_node_prop);
+        fn(node{target_node}, static_cast<std::uint32_t>(cost), dist, way, from,
+           to);
+      };
+
+      if (i != 0U) {
+        expand(flip<SearchDir>(direction::kBackward), i, i - 1);
+      }
+      if (i != w.way_nodes_[way].size() - 1U) {
+        expand(flip<SearchDir>(direction::kForward), i, i + 1);
+      }
+    }
+  }
+
+  static constexpr cost_t way_cost(way_properties const e,
+                                   direction,
+                                   direction,
+                                   std::uint16_t const dist) {
+    if (e.is_bike_accessible()) {
+      return static_cast<cost_t>(std::round(dist / 2.8F));
+    } else {
+      return kInfeasible;
+    }
+  }
+
+  static constexpr cost_t node_cost(node_properties const n) {
+    return n.is_bike_accessible() ? 0U : kInfeasible;
+  }
+};
+
+}  // namespace osr
