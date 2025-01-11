@@ -318,8 +318,14 @@ struct car_parking {
                                    direction const dir,
                                    direction const search_dir,
                                    std::uint16_t const dist) {
+    if (search_dir == direction::kForward) {
+      return car::way_cost(e, dir, search_dir, dist);
+    }
+
     return footp::way_cost(e, dir, search_dir, dist);
   }
+
+
 };
 
 }  // namespace osr

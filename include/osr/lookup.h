@@ -148,10 +148,11 @@ private:
                                 direction const dir,
                                 level_t const lvl,
                                 bool const reverse,
-                                direction const search_dir,
+                                direction const search,
                                 bitvec<node_idx_t> const* blocked) const {
     auto const way_prop = ways_.r_->way_properties_[wc.way_];
     auto const edge_dir = reverse ? opposite(dir) : dir;
+    auto const search_dir = reverse ? opposite(search) : search;
     auto const offroad_cost =
         Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir,
                           static_cast<distance_t>(wc.dist_to_way_));
