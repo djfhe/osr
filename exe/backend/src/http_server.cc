@@ -19,10 +19,12 @@
 #include "osr/geojson.h"
 #include "osr/lookup.h"
 #include "osr/routing/profiles/bike.h"
+#include "osr/routing/profiles/bike_sharing.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/profiles/car_parking.h"
 #include "osr/routing/profiles/combi_profile.h"
 #include "osr/routing/profiles/foot.h"
+#include "osr/routing/profiles/combi_profile.h"
 #include "osr/routing/route.h"
 
 using namespace net;
@@ -57,8 +59,8 @@ web_server::string_res_t json_response(
 location parse_location(json::value const& v) {
   auto const& obj = v.as_object();
   return {obj.at("lat").as_double(), obj.at("lng").as_double(),
-          obj.contains("level") ? to_level(obj.at("level").to_number<float>())
-                                : level_t::invalid()};
+          obj.contains("level") ? level_t{obj.at("level").to_number<float>()}
+                                : kNoLevel};
 }
 
 json::value to_json(std::vector<geo::latlng> const& polyline) {
@@ -131,13 +133,14 @@ struct http_server::impl {
                                    {"type", "Feature"},
                                    {
                                        "properties",
-                                       {{"level", to_float(s.from_level_)},
+                                       {{"level", s.from_level_.to_float()},
                                         {"osm_way_id",
                                          s.way_ == way_idx_t::invalid()
                                              ? 0U
                                              : to_idx(w_.way_osm_idx_[s.way_])},
                                         {"cost", s.cost_},
-                                        {"distance", s.dist_}},
+                                        {"distance", s.dist_},
+                                         {"mode", to_str(s.mode_)}},
                                    },
                                    {"geometry", to_line_string(s.polyline_)}};
                              }) |
@@ -161,7 +164,7 @@ struct http_server::impl {
       }
     });
     auto levels_sorted =
-        utl::to_vec(levels, [](level_t const l) { return to_float(l); });
+        utl::to_vec(levels, [](level_t const l) { return l.to_float(); });
     utl::sort(levels_sorted, [](auto&& a, auto&& b) { return a > b; });
     cb(json_response(req,
                      json::serialize(utl::all(levels_sorted)  //
@@ -183,10 +186,10 @@ struct http_server::impl {
 
     switch (profile) {
       case search_profile::kFoot:
-        send_graph_response<foot<false>>(req, cb, gj);
+        send_graph_response<foot<false, elevator_tracking>>(req, cb, gj);
         break;
       case search_profile::kWheelchair:
-        send_graph_response<foot<true>>(req, cb, gj);
+        send_graph_response<foot<true, elevator_tracking>>(req, cb, gj);
         break;
       case search_profile::kBike: send_graph_response<bike>(req, cb, gj); break;
       case search_profile::kCar: send_graph_response<car>(req, cb, gj); break;
@@ -196,8 +199,11 @@ struct http_server::impl {
       case search_profile::kCarParkingWheelchair:
         send_graph_response<car_parking<true>>(req, cb, gj);
         break;
-      case search_profile::kFootCarFoot:
-        send_graph_response<foot_car_foot_profile>(req, cb, gj);
+      case search_profile::kCombiFootCarFootViaParking:
+        send_graph_response<combi_foot_car_foot_profile>(req, cb, gj);
+        break;
+      case search_profile::kBikeSharing:
+        send_graph_response<bike_sharing>(req, cb, gj);
         break;
       default: throw utl::fail("not implemented");
     }
@@ -213,9 +219,12 @@ struct http_server::impl {
 
   void handle_static(web_server::http_req_t const& req,
                      web_server::http_res_cb_t const& cb) {
-    if (!serve_static_files_ ||
-        !net::serve_static_file(static_file_path_, req, cb)) {
-      return cb(net::not_found_response(req));
+    if (auto res = net::serve_static_file(static_file_path_, req);
+        res.has_value()) {
+      cb(std::move(*res));
+    } else {
+      namespace http = boost::beast::http;
+      cb(net::web_server::string_res_t{http::status::not_found, req.version()});
     }
   }
 
@@ -225,8 +234,8 @@ struct http_server::impl {
 
     auto const query = boost::json::parse(req.body()).as_object();
     auto const level = query.contains("level")
-                           ? to_level(query.at("level").to_number<float>())
-                           : level_t::invalid();
+                           ? level_t{query.at("level").to_number<float>()}
+                           : kNoLevel;
     auto const waypoints = query.at("waypoints").as_array();
     auto const min = point::from_latlng(
         {waypoints[1].as_double(), waypoints[0].as_double()});
@@ -235,7 +244,7 @@ struct http_server::impl {
 
     auto gj = geojson_writer{.w_ = w_, .platforms_ = pl_};
     pl_->find(min, max, [&](platform_idx_t const i) {
-      if (level == level_t::invalid() || pl_->get_level(w_, i) == level) {
+      if (level == kNoLevel || pl_->get_level(w_, i) == level) {
         gj.write_platform(i);
       }
     });

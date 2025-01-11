@@ -3,39 +3,34 @@
 #include <string_view>
 #include <vector>
 
-#include "boost/json/object.hpp"
+#include "geo/polyline.h"
 
+#include "osr/location.h"
 #include "osr/lookup.h"
-#include "osr/routing/dijkstra.h"
+#include "osr/routing/mode.h"
+#include "osr/routing/profile.h"
 #include "osr/types.h"
-#include "osr/util/infinite.h"
-#include "osr/util/reverse.h"
 
 namespace osr {
 
-enum class search_profile : std::uint8_t {
-  kFoot,
-  kWheelchair,
-  kBike,
-  kCar,
-  kCarParking,
-  kCarParkingWheelchair,
-  kFootCarFoot,
-};
+struct ways;
 
-search_profile to_profile(std::string_view);
+template <typename Profile>
+struct dijkstra;
 
-std::string_view to_str(search_profile);
+struct sharing_data;
 
 struct path {
   struct segment {
-    std::vector<geo::latlng> polyline_;
-    level_t from_level_;
-    level_t to_level_;
-    node_idx_t from_{}, to_{};
-    way_idx_t way_;
+    geo::polyline polyline_;
+    level_t from_level_{kNoLevel};
+    level_t to_level_{kNoLevel};
+    node_idx_t from_{node_idx_t::invalid()};
+    node_idx_t to_{node_idx_t::invalid()};
+    way_idx_t way_{way_idx_t::invalid()};
     cost_t cost_{kInfeasible};
     distance_t dist_{0};
+    mode mode_{mode::kFoot};
   };
 
   cost_t cost_{kInfeasible};
@@ -57,7 +52,8 @@ std::vector<std::optional<path>> route(
     direction,
     double max_match_distance,
     bitvec<node_idx_t> const* blocked = nullptr,
-    std::function<bool(path const&)> const& = [](path const&) {
+    sharing_data const* sharing = nullptr,
+    std::function<bool(path const&)> const& do_reconstruct = [](path const&) {
       return false;
     });
 
@@ -69,6 +65,33 @@ std::optional<path> route(ways const&,
                           cost_t max,
                           direction,
                           double max_match_distance,
-                          bitvec<node_idx_t> const* blocked = nullptr);
+                          bitvec<node_idx_t> const* blocked = nullptr,
+                          sharing_data const* sharing = nullptr);
+
+std::optional<path> route(ways const&,
+                          search_profile,
+                          location const& from,
+                          location const& to,
+                          match_view_t from_match,
+                          match_view_t to_match,
+                          cost_t const max,
+                          direction,
+                          bitvec<node_idx_t> const* blocked = nullptr,
+                          sharing_data const* sharing = nullptr);
+
+std::vector<std::optional<path>> route(
+    ways const&,
+    search_profile const,
+    location const& from,
+    std::vector<location> const& to,
+    match_view_t from_match,
+    std::vector<match_t> const& to_match,
+    cost_t const max,
+    direction const,
+    bitvec<node_idx_t> const* blocked = nullptr,
+    sharing_data const* sharing = nullptr,
+    std::function<bool(path const&)> const& do_reconstruct = [](path const&) {
+      return false;
+    });
 
 }  // namespace osr

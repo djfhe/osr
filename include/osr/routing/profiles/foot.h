@@ -1,5 +1,8 @@
 #pragma once
 
+#include "utl/for_each_bit_set.h"
+
+#include "osr/routing/mode.h"
 #include "osr/routing/tracking.h"
 #include "osr/ways.h"
 
@@ -7,28 +10,33 @@
 
 namespace osr {
 
+struct sharing_data;
+
 template <bool IsWheelchair, typename Tracking = noop_tracking>
 struct foot {
   static constexpr auto const kMaxMatchDistance = 100U;
   static constexpr auto const kOffroadPenalty = 3U;
 
   struct node {
-    friend bool operator==(node, node) = default;
+    friend bool operator==(node const a, node const b) {
+      auto const is_zero = [](level_t const l) {
+        return l == kNoLevel || l == level_t{0.F};
+      };
+      return a.n_ == b.n_ &&
+             (a.lvl_ == b.lvl_ || (is_zero(a.lvl_) && is_zero(b.lvl_)));
+    }
 
     static constexpr node invalid() noexcept {
-      return {.n_ = node_idx_t::invalid(), .lvl_{level_t::invalid()}};
+      return {.n_ = node_idx_t::invalid(), .lvl_{kNoLevel}};
     }
     constexpr node_idx_t get_node() const noexcept { return n_; }
 
-    boost::json::object geojson_properties(ways const&) const {
-      return boost::json::object{{"node_id", n_.v_}, {"type", "foot"}};
-    }
-
     constexpr node get_key() const noexcept { return *this; }
 
+    static constexpr mode get_mode() noexcept { return mode::kFoot; }
+
     std::ostream& print(std::ostream& out, ways const& w) const {
-      return out << "(node=" << w.node_to_osm_[n_]
-                 << ", level=" << to_float(lvl_) << ")";
+      return out << "(node=" << w.node_to_osm_[n_] << ", level=" << lvl_ << ")";
     }
 
     node_idx_t n_;
@@ -89,10 +97,11 @@ struct foot {
 
   struct hash {
     using is_avalanching = void;
-    auto operator()(node const n) const noexcept -> std::uint64_t {
+    auto operator()(auto const n) const noexcept -> std::uint64_t {
       using namespace ankerl::unordered_dense::detail;
       return wyhash::mix(
-          wyhash::hash(static_cast<std::uint64_t>(to_idx(n.lvl_))),
+          wyhash::hash(static_cast<std::uint64_t>(
+              to_idx(n.lvl_ == kNoLevel ? level_t{0.F} : n.lvl_))),
           wyhash::hash(static_cast<std::uint64_t>(to_idx(n.n_))));
     }
   };
@@ -105,10 +114,12 @@ struct foot {
                                  direction,
                                  Fn&& f) {
     auto const p = w.way_properties_[way];
-    if (lvl == level_t::invalid() ||
+    if (lvl == kNoLevel ||
         (p.from_level() == lvl || p.to_level() == lvl ||
-         can_use_elevator(w, n, lvl))) {
-      f(node{n, lvl == level_t::invalid() ? p.from_level() : lvl});
+         can_use_elevator(w, n, lvl)) ||
+        (lvl == level_t{0.F} &&
+         (p.from_level() == kNoLevel && p.to_level() == kNoLevel))) {
+      f(node{n, p.from_level()});
     }
   }
 
@@ -127,7 +138,7 @@ struct foot {
     for (auto i = way_pos_t{0U}; i != ways.size(); ++i) {
       // TODO what's with stairs? need to resolve to from_level or to_level?
       auto const p = w.way_properties_[w.node_ways_[n][i]];
-      if (lvl == level_t::invalid()) {
+      if (lvl == kNoLevel) {
         if (!levelsBitSet.test(p.from_level().v_)) {
           levelsBitSet.set(p.to_level().v_);
           f(node{n, p.from_level()});
@@ -137,7 +148,8 @@ struct foot {
           f(node{n, p.to_level()});
         }
       } else if ((p.from_level() == lvl || p.to_level() == lvl ||
-                  can_use_elevator(w, n, lvl)) && !levelsBitSet.test(lvl.v_)) {
+                  p.from_level() == kNoLevel || can_use_elevator(w, n, lvl)) &&
+                  !levelsBitSet.test(lvl.v_)) {
         levelsBitSet.set(lvl.v_);
         f(node{n, lvl});
       }
@@ -148,6 +160,7 @@ struct foot {
   static void adjacent(ways::routing const& w,
                        node const n,
                        bitvec<node_idx_t> const* blocked,
+                       sharing_data const*,
                        Fn&& fn) {
     for (auto const [way, i] :
          utl::zip_unchecked(w.node_ways_[n.n_], w.node_in_way_idx_[n.n_])) {
@@ -235,7 +248,10 @@ struct foot {
     }
 
     if (way_prop.is_steps()) {
-      if (way_prop.from_level() == from_level) {
+      if (from_level == kNoLevel) {
+        return way_prop.from_level() == level_t{0.F} ? way_prop.to_level()
+                                                     : way_prop.from_level();
+      } else if (way_prop.from_level() == from_level) {
         return way_prop.to_level();
       } else if (way_prop.to_level() == from_level) {
         return way_prop.from_level();
@@ -247,8 +263,9 @@ struct foot {
     } else if (can_use_elevator(w, from_node, way_prop.from_level(),
                                 from_level)) {
       return way_prop.from_level();
-    } else if (way_prop.from_level() == from_level) {
-      return from_level;
+    } else if (way_prop.from_level() == from_level ||
+               way_prop.from_level() == kNoLevel || from_level == kNoLevel) {
+      return way_prop.from_level();
     } else {
       return std::nullopt;
     }
@@ -257,7 +274,7 @@ struct foot {
   static bool can_use_elevator(ways::routing const& w,
                                way_idx_t const way,
                                level_t const a,
-                               level_t const b = level_t::invalid()) {
+                               level_t const b = kNoLevel) {
     return w.way_properties_[way].is_elevator() &&
            can_use_elevator(w, w.way_nodes_[way][0], a, b);
   }
@@ -268,8 +285,9 @@ struct foot {
                                       Fn&& f) {
     auto const p = w.node_properties_[n];
     if (p.is_multi_level()) {
-      for_each_set_bit(get_elevator_multi_levels(w, n),
-                       [&](auto&& l) { f(level_t{l}); });
+      utl::for_each_set_bit(get_elevator_multi_levels(w, n), [&](auto&& l) {
+        f(level_t{static_cast<std::uint8_t>(l)});
+      });
     } else {
       f(p.from_level());
       f(p.to_level());
@@ -279,7 +297,7 @@ struct foot {
   static bool can_use_elevator(ways::routing const& w,
                                node_idx_t const n,
                                level_t const a,
-                               level_t const b = level_t::invalid()) {
+                               level_t const b = kNoLevel) {
     auto const p = w.node_properties_[n];
     if (!p.is_elevator()) {
       return false;
@@ -287,12 +305,11 @@ struct foot {
 
     if (p.is_multi_level()) {
       auto const levels = get_elevator_multi_levels(w, n);
-      return has_bit_set(levels, to_idx(a)) &&
-             (b == level_t::invalid() || has_bit_set(levels, to_idx(b)));
+      return (a == kNoLevel || utl::has_bit_set(levels, to_idx(a))) &&
+             (b == kNoLevel || utl::has_bit_set(levels, to_idx(b)));
     } else {
-      return (a == p.from_level() || a == p.to_level()) &&
-             (b == level_t::invalid() || b == p.from_level() ||
-              b == p.to_level());
+      return (a == kNoLevel || a == p.from_level() || a == p.to_level()) &&
+             (b == kNoLevel || b == p.from_level() || b == p.to_level());
     }
   }
 
@@ -311,8 +328,9 @@ struct foot {
                                    std::uint16_t const dist) {
     if ((e.is_foot_accessible() || e.is_bike_accessible()) &&
         (!IsWheelchair || !e.is_steps())) {
-      return static_cast<cost_t>(
-          std::round(dist / (IsWheelchair ? 0.8 : 1.1F)));
+      return (!e.is_foot_accessible() ? 90 : 0) +
+             static_cast<cost_t>(
+                 std::round(dist / (IsWheelchair ? 0.8 : 1.1F)));
     } else {
       return kInfeasible;
     }

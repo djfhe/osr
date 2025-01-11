@@ -1,10 +1,15 @@
 #pragma once
 
+#include "osr/routing/additional_edge.h"
 #include "osr/routing/dial.h"
 #include "osr/types.h"
 #include "osr/ways.h"
 
 namespace osr {
+
+struct sharing_data;
+
+constexpr auto const kDebug = false;
 
 template <typename Profile>
 struct dijkstra {
@@ -26,18 +31,24 @@ struct dijkstra {
   }
 
   template<direction SearchDir>
-  void add_start(label const l) {
+  void add_start(ways const& w, label const l) {
     if (cost_[l.get_node().get_key()].template update<SearchDir>(l, l.get_node(), l.cost(),
                                              Profile::template get_starting_node_pred<SearchDir>())) {
+      if constexpr (kDebug) {
+        std::cout << "START ";
+        l.get_node().print(std::cout, w);
+        std::cout << "\n";
+      }
+      
       pq_.push(l);
     }
   }
 
-  void add_start(label const l, direction const dir) {
+  void add_start(ways const& w, label const l, direction const dir) {
     if (dir == direction::kForward) {
-      add_start<direction::kForward>(l);
+      add_start<direction::kForward>(w, l);
     } else {
-      add_start<direction::kBackward>(l);
+      add_start<direction::kBackward>(w, l);
     }
   }
 
@@ -47,20 +58,33 @@ struct dijkstra {
   }
 
   template <direction SearchDir, bool WithBlocked>
-  void run(ways::routing const& r,
+  void run(ways const& w,
+           ways::routing const& r,
            cost_t const max,
-           bitvec<node_idx_t> const* blocked) {
+           bitvec<node_idx_t> const* blocked,
+           sharing_data const* sharing) {
     while (!pq_.empty()) {
       auto l = pq_.pop();
       if (get_cost(l.get_node()) < l.cost()) {
         continue;
       }
 
+      if constexpr (kDebug) {
+        std::cout << "EXTRACT ";
+        l.get_node().print(std::cout, w);
+        std::cout << "\n";
+      }
+
       auto const curr = l.get_node();
       Profile::template adjacent<SearchDir, WithBlocked>(
-          r, curr, blocked,
+          r, curr, blocked, sharing,
           [&](node const neighbor, std::uint32_t const cost, distance_t,
               way_idx_t const way, std::uint16_t, std::uint16_t) {
+            if constexpr (kDebug) {
+              std::cout << "  NEIGHBOR ";
+              neighbor.print(std::cout, w);
+            }
+
             auto const total = l.cost() + cost;
             if (total < max &&
                 cost_[neighbor.get_key()].template update<SearchDir>(
@@ -68,23 +92,33 @@ struct dijkstra {
               auto next = label{neighbor, static_cast<cost_t>(total)};
               next.track(l, r, way, neighbor.get_node());
               pq_.push(std::move(next));
+
+              if constexpr (kDebug) {
+                std::cout << " -> PUSH\n";
+              }
+            } else {
+              if constexpr (kDebug) {
+                std::cout << " -> DOMINATED\n";
+              }
             }
           });
     }
   }
 
-  void run(ways::routing const& r,
+  void run(ways const& w,
+           ways::routing const& r,
            cost_t const max,
            bitvec<node_idx_t> const* blocked,
+           sharing_data const* sharing,
            direction const dir) {
     if (blocked == nullptr) {
       dir == direction::kForward
-          ? run<direction::kForward, false>(r, max, blocked)
-          : run<direction::kBackward, false>(r, max, blocked);
+          ? run<direction::kForward, false>(w, r, max, blocked, sharing)
+          : run<direction::kBackward, false>(w, r, max, blocked, sharing);
     } else {
       dir == direction::kForward
-          ? run<direction::kForward, true>(r, max, blocked)
-          : run<direction::kBackward, true>(r, max, blocked);
+          ? run<direction::kForward, true>(w, r, max, blocked, sharing)
+          : run<direction::kBackward, true>(w, r, max, blocked, sharing);
     }
   }
 

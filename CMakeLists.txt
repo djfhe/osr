@@ -21,6 +21,13 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # ignore deprecated fileno in tiles
 endif ()
 
+option(OSR_MIMALLOC "use mimalloc" OFF)
+
+if (OSR_MIMALLOC)
+    set(CISTA_USE_MIMALLOC ON)
+    set(TILES_MIMALLOC ON)
+endif()
+
 if (NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
     if (OSR_MIMALLOC)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -29,7 +36,6 @@ if (NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
     endif ()
 endif ()
 
-option(OSR_MIMALLOC "use mimalloc" OFF)
 if (OSR_MIMALLOC AND WIN32)
     set(MI_BUILD_SHARED ON)
 endif ()
@@ -82,6 +88,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
             -Wno-duplicate-enum
             -Wno-ctad-maybe-unsupported
             -Wno-unknown-pragmas
+            -Wno-switch-default
             -Werror)
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(osr-compile-options -Wall -Wextra -Werror -Wno-unknown-pragmas)
@@ -159,7 +166,7 @@ target_include_directories(osr-runtime-benchmark-car-parking PRIVATE exe/benchma
 
 file(GLOB_RECURSE osr-backend-src exe/backend/*.cc)
 add_executable(osr-backend ${osr-backend-src})
-target_link_libraries(osr-backend osr web-server conf boost-json)
+target_link_libraries(osr-backend osr web-server conf boost-json TBB::tbb)
 target_include_directories(osr-backend PRIVATE exe/backend/include)
 
 # --- TEST ---
@@ -170,11 +177,12 @@ configure_file(
 file(GLOB_RECURSE osr-test-files test/*cc)
 add_executable(osr-test ${osr-test-files})
 target_include_directories(osr-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(osr-test gtest osr)
+target_link_libraries(osr-test gtest osr boost-json)
 
 # --- MIMALLOC ---
 if (OSR_MIMALLOC)
     target_link_libraries(osr-extract ${osr-mimalloc-lib})
+    target_link_libraries(osr-backend ${osr-mimalloc-lib})
     if (WIN32)
         add_custom_command(
                 TARGET osr-extract POST_BUILD
@@ -186,7 +194,7 @@ if (OSR_MIMALLOC)
         add_custom_command(
                 TARGET osr-extract POST_BUILD
                 COMMAND "${CMAKE_COMMAND}" -E copy
-                "${CMAKE_CURRENT_BINARY_DIR}/deps/mimalloc/mimalloc-redirect.dll"
+                "${CMAKE_BINARY_DIR}/deps/mimalloc/mimalloc-redirect.dll"
                 $<TARGET_FILE_DIR:osr>
                 COMMENT "Copy mimalloc-redirect.dll to output directory"
         )

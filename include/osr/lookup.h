@@ -1,8 +1,12 @@
 #pragma once
 
+#include <ostream>
+
+#include "cista/containers/rtree.h"
 #include "cista/reflection/printable.h"
 
 #include "geo/box.h"
+#include "geo/polyline.h"
 
 #include "osr/ways.h"
 
@@ -10,40 +14,10 @@
 #include "utl/helpers/algorithm.h"
 #include "utl/pairwise.h"
 
-#include "rtree.h"
+#include "osr/location.h"
+#include "osr/routing/profile.h"
 
 namespace osr {
-
-struct location {
-  CISTA_PRINTABLE(location)
-  CISTA_FRIEND_COMPARABLE(location)
-  geo::latlng pos_;
-  level_t lvl_;
-};
-
-struct node_candidate {
-  bool valid() const { return node_ != node_idx_t::invalid(); }
-
-  level_t lvl_{level_t::invalid()};
-  direction way_dir_{direction::kForward};
-  node_idx_t node_{node_idx_t::invalid()};
-  double dist_to_node_{0.0};
-  cost_t cost_{0U};
-  cost_t offroad_cost_{0U};
-  std::vector<geo::latlng> path_{};
-};
-
-struct way_candidate {
-  friend bool operator<(way_candidate const& a, way_candidate const& b) {
-    return a.dist_to_way_ < b.dist_to_way_;
-  }
-
-  double dist_to_way_;
-  geo::latlng best_;
-  std::size_t segment_idx_;
-  way_idx_t way_{way_idx_t::invalid()};
-  node_candidate left_{}, right_{};
-};
 
 template <typename T, typename Collection, typename Fn>
 void till_the_end(T const& start,
@@ -66,37 +40,82 @@ void till_the_end(T const& start,
   }
 }
 
-using match_t = std::vector<way_candidate>;
+struct node_candidate {
+  bool valid() const { return node_ != node_idx_t::invalid(); }
 
-template <typename PolyLine>
-way_candidate distance_to_way(geo::latlng const& x, PolyLine&& c) {
-  auto min = std::numeric_limits<double>::max();
-  auto best = geo::latlng{};
-  auto best_segment_idx = 0U;
-  auto segment_idx = 0U;
-  for (auto const [a, b] : utl::pairwise(c)) {
-    auto const candidate = geo::closest_on_segment(x, a, b);
-    auto const dist = geo::distance(x, candidate);
-    if (dist < min) {
-      min = dist;
-      best = candidate;
-      best_segment_idx = segment_idx;
-    }
-    ++segment_idx;
+  level_t lvl_{kNoLevel};
+  direction way_dir_{direction::kForward};
+  node_idx_t node_{node_idx_t::invalid()};
+  double dist_to_node_{0.0};
+  cost_t cost_{0U};
+  cost_t offroad_cost_{0U};
+  std::vector<geo::latlng> path_{};
+};
+
+struct way_candidate {
+  friend bool operator<(way_candidate const& a, way_candidate const& b) {
+    return a.dist_to_way_ < b.dist_to_way_;
   }
-  return {.dist_to_way_ = min, .best_ = best, .segment_idx_ = best_segment_idx};
-}
+
+  double dist_to_way_;
+  geo::latlng best_;
+  std::size_t segment_idx_;
+  location query_{};
+  way_idx_t way_{way_idx_t::invalid()};
+  node_candidate left_{}, right_{};
+};
+
+using match_t = std::vector<way_candidate>;
+using match_view_t = std::span<way_candidate const>;
 
 struct lookup {
-  lookup(ways const& ways) : rtree_{rtree_new()}, ways_{ways} {
-    utl::verify(rtree_ != nullptr, "rtree creation failed");
-    for (auto i = way_idx_t{0U}; i != ways.n_ways(); ++i) {
-      insert(i);
-    }
+  lookup(ways const&, std::filesystem::path, cista::mmap::protection);
+
+  void build_rtree();
+
+  cista::mmap mm(char const* file) {
+    return cista::mmap{(p_ / file).generic_string().c_str(), mode_};
   }
 
-  ~lookup() { rtree_free(rtree_); }
+  match_t match(location const& query,
+                bool const reverse,
+                direction const search_dir,
+                double const max_match_distance,
+                bitvec<node_idx_t> const* blocked,
+                search_profile) const;
 
+  template <typename Profile>
+  match_t match(location const& query,
+                bool const reverse,
+                direction const search_dir,
+                double max_match_distance,
+                bitvec<node_idx_t> const* blocked) const {
+    auto way_candidates = get_way_candidates<Profile>(
+        query, reverse, search_dir, max_match_distance, blocked);
+    auto i = 0U;
+    while (way_candidates.empty() && i++ < 4U) {
+      max_match_distance *= 2U;
+      way_candidates = get_way_candidates<Profile>(query, reverse, search_dir,
+                                                   max_match_distance, blocked);
+    }
+    return way_candidates;
+  }
+
+  template <typename Fn>
+  void find(geo::box const& b, Fn&& fn) const {
+    auto const min = b.min_.lnglat_float();
+    auto const max = b.max_.lnglat_float();
+    rtree_.search(min, max, [&](auto, auto, way_idx_t const w) {
+      fn(w);
+      return true;
+    });
+  }
+
+  hash_set<node_idx_t> find_elevators(geo::box const& b) const;
+
+  void insert(way_idx_t);
+
+private:
   template <typename Profile>
   match_t get_way_candidates(location const& query,
                              bool const reverse,
@@ -104,10 +123,12 @@ struct lookup {
                              double const max_match_distance,
                              bitvec<node_idx_t> const* blocked) const {
     auto way_candidates = std::vector<way_candidate>{};
-    find(query.pos_, [&](way_idx_t const way) {
-      auto d = distance_to_way(query.pos_, ways_.way_polylines_[way]);
+    find(geo::box{query.pos_, max_match_distance}, [&](way_idx_t const way) {
+      auto d = geo::distance_to_polyline<way_candidate>(
+          query.pos_, ways_.way_polylines_[way]);
       if (d.dist_to_way_ < max_match_distance) {
         auto& wc = way_candidates.emplace_back(std::move(d));
+        wc.query_ = query;
         wc.way_ = way;
         wc.left_ =
             find_next_node<Profile>(wc, query, direction::kBackward, query.lvl_,
@@ -122,21 +143,6 @@ struct lookup {
   }
 
   template <typename Profile>
-  match_t match(location const& query,
-                bool const reverse,
-                direction const search_dir,
-                double const max_match_distance,
-                bitvec<node_idx_t> const* blocked) const {
-    auto way_candidates = get_way_candidates<Profile>(
-        query, reverse, search_dir, max_match_distance, blocked);
-    if (way_candidates.empty()) {
-      way_candidates = get_way_candidates<Profile>(
-          query, reverse, search_dir, max_match_distance * 2U, blocked);
-    }
-    return way_candidates;
-  }
-
-  template <typename Profile>
   node_candidate find_next_node(way_candidate const& wc,
                                 location const& query,
                                 direction const dir,
@@ -146,15 +152,13 @@ struct lookup {
                                 bitvec<node_idx_t> const* blocked) const {
     auto const way_prop = ways_.r_->way_properties_[wc.way_];
     auto const edge_dir = reverse ? opposite(dir) : dir;
-    auto const way_cost =
-        Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir, 0U);
-    if (way_cost == kInfeasible) {
-      return node_candidate{};
-    }
-
     auto const offroad_cost =
         Profile::way_cost(way_prop, flip(search_dir, edge_dir), search_dir,
                           static_cast<distance_t>(wc.dist_to_way_));
+    if (offroad_cost == kInfeasible) {
+      return node_candidate{};
+    }
+
     auto c = node_candidate{.lvl_ = lvl,
                             .way_dir_ = dir,
                             .dist_to_node_ = wc.dist_to_way_,
@@ -192,57 +196,9 @@ struct lookup {
     return c;
   }
 
-  template <typename Fn>
-  void find(geo::latlng const& x, Fn&& fn) const {
-    find({{x.lat() - 0.01, x.lng() - 0.01}, {x.lat() + 0.01, x.lng() + 0.01}},
-         std::forward<Fn>(fn));
-  }
-
-  template <typename Fn>
-  void find(geo::box const& b, Fn&& fn) const {
-    auto const min = b.min_.lnglat();
-    auto const max = b.max_.lnglat();
-    rtree_search(
-        rtree_, min.data(), max.data(),
-        [](double const* /* min */, double const* /* max */, void const* item,
-           void* udata) {
-          (*reinterpret_cast<Fn*>(udata))(
-              way_idx_t{static_cast<way_idx_t::value_t>(
-                  reinterpret_cast<std::size_t>(item))});
-          return true;
-        },
-        &fn);
-  }
-
-  hash_set<node_idx_t> find_elevators(geo::box const& b) const {
-    auto elevators = hash_set<node_idx_t>{};
-    find(b, [&](way_idx_t const way) {
-      for (auto const n : ways_.r_->way_nodes_[way]) {
-        if (ways_.r_->node_properties_[n].is_elevator()) {
-          elevators.emplace(n);
-        }
-      }
-    });
-    return elevators;
-  }
-
-  void insert(way_idx_t const way) {
-    auto b = osmium::Box{};
-    for (auto const& c : ways_.way_polylines_[way]) {
-      b.extend(osmium::Location{c.lat_, c.lng_});
-    }
-
-    auto const min_corner =
-        std::array{b.bottom_left().lon(), b.bottom_left().lat()};
-    auto const max_corner =
-        std::array{b.top_right().lon(), b.top_right().lat()};
-
-    rtree_insert(
-        rtree_, min_corner.data(), max_corner.data(),
-        reinterpret_cast<void*>(static_cast<std::size_t>(to_idx(way))));
-  }
-
-  rtree* rtree_;
+  std::filesystem::path p_;
+  cista::mmap::protection mode_;
+  cista::mm_rtree<way_idx_t> rtree_;
   ways const& ways_;
 };
 

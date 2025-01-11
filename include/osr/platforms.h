@@ -15,8 +15,6 @@
 
 namespace osr {
 
-using platform_idx_t = cista::strong<std::uint32_t, struct platform_idx_>;
-
 using ref_t = std::variant<way_idx_t, node_idx_t>;
 using ref_value_t = std::uint32_t;
 
@@ -135,7 +133,7 @@ struct platforms {
 
   level_t get_level(ways const& w, platform_idx_t const i) const {
     if (i == platform_idx_t::invalid()) {
-      return to_level(0.0);
+      return level_t{0.0F};
     }
     return std::visit(
         utl::overloaded{

@@ -1,7 +1,7 @@
 [boost]
   url=git@github.com:motis-project/boost.git
   branch=master
-  commit=60cae66449fa3c9599b2b7d3d5d44c65301ed3a3
+  commit=73549ebca677fe6214202a1ab580362b4f80e653
 [osmium]
   url=git@github.com:motis-project/libosmium.git
   branch=master
@@ -13,11 +13,11 @@
 [geo]
   url=git@github.com:motis-project/geo.git
   branch=master
-  commit=82ff7ceeb25abd8ddba01320be27d3cf1bdee1b0
+  commit=5d99aeb10674a41a82d7c78f850abfd9605bf6e1
 [cista]
   url=git@github.com:felixguendling/cista.git
   branch=master
-  commit=bcabd041ddf07baf1b544bbe46ef195c2b6d22bd
+  commit=847b27100b7e730370b810ce62206a66b0bf2d79
 [googletest]
   url=git@github.com:motis-project/googletest.git
   branch=master
@@ -25,23 +25,23 @@
 [utl]
   url=git@github.com:motis-project/utl.git
   branch=master
-  commit=80df7a6f1e2de4d290c48e9218d48eb9792b7289
+  commit=538a11dec577de7238c7640491b3d4e091a33e08
 [protozero]
   url=git@github.com:motis-project/protozero.git
   branch=master
   commit=8c9f3fa97c2cfdceef86d0b61818ae98e9328f29
-[zlib]
-  url=git@github.com:motis-project/zlib.git
-  branch=master
-  commit=8e7c86d3a0e49101b9a67d74c4a07345dcb0e485
+[zlib-ng]
+  url=git@github.com:motis-project/zlib-ng.git
+  branch=develop
+  commit=68ab3e2d80253ec5dc3c83691d9ff70477b32cd3
 [tiles]
   url=git@github.com:motis-project/tiles.git
   branch=master
-  commit=64f297ea0f782d04c89e82c6d478a1dd453e5f70
+  commit=6513820682dda589594f705b0ac7007d7bc7cdad
 [mimalloc]
   url=git@github.com:motis-project/mimalloc.git
   branch=master
-  commit=0087f000848de31b0090cb6f282348bd2fd3a9b8
+  commit=2a557cafb2e9e7c872358a83a63c62a7e14330b3
 [rapidjson]
   url=git@github.com:motis-project/rapidjson.git
   branch=master
@@ -57,7 +57,7 @@
 [unordered_dense]
   url=git@github.com:motis-project/unordered_dense.git
   branch=main
-  commit=c11595a7743d20622637584bddf77243d72ae152
+  commit=b33b037377ca966bbdd9cccc3417e46e88f83bfb
 [expat]
   url=git@github.com:motis-project/expat.git
   branch=master
@@ -65,4 +65,4 @@
 [net]
   url=git@github.com:motis-project/net.git
   branch=master
-  commit=44674d2f3917e20b7019a0f7254d332522c36fb7
+  commit=75611343512242c64a5b3f50f3a660a17298339d

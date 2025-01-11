@@ -41,6 +41,8 @@ struct profile_types<std::tuple<Ts...>> {
 
 namespace osr {
 
+struct sharing_data;
+
 template <typename profile_tuple, typename transition_tuple>
 struct combi_profile {
   static_assert(std::tuple_size_v<profile_tuple> > 0, "At least one profile must be provided.");
@@ -56,6 +58,11 @@ struct combi_profile {
 
   struct node {
     friend bool operator==(node, node) = default;
+
+
+    constexpr mode get_mode() const noexcept {
+      return std::visit([](auto const& n) { return n.get_mode(); }, n_);
+    }
 
     boost::json::object geojson_properties(ways const& w) const {
       return std::visit([&](auto const& n) { return n.geojson_properties(w); }, n_);
@@ -148,7 +155,7 @@ struct combi_profile {
           );
 
         if (updated) {
-          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          auto const transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
           pred_[transition_index] = pred;
         }
 
@@ -169,7 +176,7 @@ struct combi_profile {
         if ((dir == direction::kForward && index == 0) || (dir == direction::kBackward && index == last_profile_index::value)) {
           return std::nullopt;
         } else {
-          auto constexpr transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
+          auto const transition_index = (index - 1) * 32 + get_offset<std::tuple_element_t<index, profile_tuple>>(profile_node_);
           return pred_[transition_index];
         }
       });
@@ -227,13 +234,14 @@ struct combi_profile {
    static void adjacent(ways::routing const& w,
                         node const n,
                         bitvec<node_idx_t> const* blocked,
+                        sharing_data const* sharing,
                         Fn&& fn) {
     visit_with_index(n.n_, [&](auto const& profile_node_, auto const index) {
       using NodeType = std::decay_t<decltype(profile_node_)>;
       using Profile = std::tuple_element_t<index, profile_tuple>;
-      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, [&](
+      Profile::template adjacent<SearchDir, WithBlocked>(w, profile_node_, blocked, sharing, [&](
         NodeType adjacent_profile_node,
-        cost_t const cost,
+        std::uint32_t const cost,
         distance_t const dist,
         way_idx_t const way,
         std::uint16_t const from,
@@ -254,9 +262,9 @@ struct combi_profile {
           }
 
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
-            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, sharing, [&](
               NextProfileNode adjacent_profile_node,
-              cost_t const cost,
+              std::uint32_t const cost,
               distance_t const dist,
               way_idx_t const way,
               std::uint16_t const from,
@@ -269,7 +277,9 @@ struct combi_profile {
       } else if constexpr (SearchDir == direction::kForward && index < last_profile_index::value) {
         using transition = std::tuple_element_t<index, transition_tuple>;
 
-        if (transition::operator()(w, n.get_node(), blocked)) {
+        const cost_t transition_cost = transition::operator()(w, n.get_node(), blocked);
+
+        if (transition_cost != kInfeasible) {
           using NextProfile = std::tuple_element_t<index + 1, profile_tuple>;
           using NextProfileNode = typename NextProfile::node;
 
@@ -278,15 +288,15 @@ struct combi_profile {
           }
 
           NextProfile::template resolve_all(w, n.get_node(), w.node_properties_[n.get_node()].from_level(), [&](NextProfileNode const& next_profile_node) {
-            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, [&](
+            NextProfile::template adjacent<SearchDir, WithBlocked>(w, next_profile_node, blocked, sharing, [&](
               NextProfileNode adjacent_profile_node,
-              cost_t const cost,
+              std::uint32_t const cost,
               distance_t const dist,
               way_idx_t const way,
               std::uint16_t const from,
               std::uint16_t const to
             ) {
-              fn(node{profile_node{std::in_place_index<index + 1>, adjacent_profile_node}}, cost, dist, way, from, to);
+              fn(node{profile_node{std::in_place_index<index + 1>, adjacent_profile_node}}, cost + transition_cost, dist, way, from, to);
             });
           });
         }
@@ -329,5 +339,5 @@ struct combi_profile {
   }
 };
 
-using foot_car_foot_profile = combi_profile<std::tuple<car, foot<false>>, std::tuple<transitions::is_parking>>;
+using combi_foot_car_foot_profile = combi_profile<std::tuple<foot<false>, car, foot<false>>, std::tuple<transitions::is_parking<30U>, transitions::is_parking<30U>>>;
 }
